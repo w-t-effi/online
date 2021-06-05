@@ -5,6 +5,8 @@ from fires import FIRES
 from sklearn.metrics import accuracy_score
 from normalize import normalize
 
+normalize_data = False
+
 # Load data as scikit-multiflow FileStream
 # NOTE: FIRES accepts only numeric values. Please one-hot-encode or factorize string/char variables
 # Additionally, we suggest users to normalize all features, e.g. by using scikit-learn's MinMaxScaler()
@@ -13,7 +15,8 @@ stream = FileStream('data/spambase.csv', target_idx=0)
 # Initial fit of the predictive model
 predictor = PerceptronMask()
 x, y = stream.next_sample(batch_size=100)
-# x = normalize(x)
+if normalize_data:
+    x = normalize(x)
 predictor.partial_fit(x, y, stream.target_values)
 
 # Initialize FIRES
@@ -35,9 +38,10 @@ n_selected_ftr = 10
 while stream.has_more_samples():
     # Load a new sample
     x, y = stream.next_sample(batch_size=10)
-    
+
     # Normalize data
-    # x = normalize(x)
+    if normalize_data:
+        x = normalize(x)
 
     # Select features
     ftr_weights = fires_model.weigh_features(x, y)  # Get feature weights with FIRES
