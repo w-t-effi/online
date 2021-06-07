@@ -7,6 +7,9 @@ from sklearn.linear_model import Perceptron
 import warnings
 warnings.filterwarnings("ignore")
 
+def normalize():
+    window_x = (window_x - current_min)/(current_max-current_min)
+
 alternate1 = ConceptDriftStream(
     stream=SEAGenerator(balance_classes=False, classification_function=1, random_state=112, noise_percentage=0.1),
     position=50000,
@@ -31,6 +34,10 @@ window_x = x
 window_y = y
 classifier.fit(window_x, window_y)
 ctr = 0
+
+current_min = np.min(window_x,axis=0)
+current_max = np.max(window_x,axis=0)
+current_mean = np.mean(window_x,axis=0)
 while stream.has_more_samples():
     y_pred = classifier.predict(window_x)
 
@@ -38,9 +45,13 @@ while stream.has_more_samples():
         adwin.add_element(y[i] == y_pred[i])
         if adwin.detected_change():
             print(f'Change detected at index: {ctr}')
+            current_max=np.max(window_x,axis=0)
+            current_min=np.min(window_x,axis=0)
+            current_mean=np.mean(window_x,axis=0)
 
     try:
         x, y = stream.next_sample(batch_size)
+        normalize()
     except ValueError:
         break
     window_x = np.concatenate((window_x, x), axis=0)[-window_size:]
@@ -48,3 +59,14 @@ while stream.has_more_samples():
     ctr += 1
 
 stream.restart()
+
+
+def compute_min_max(delta):
+    _min = np.min(x_window, axis = 0)
+    _max = np.max(x_window, axis = 0)
+    
+    if(delta<np.abs(np.mean(x_window, axis=0)-current_mean)/current_mean):
+        current_min = _min
+        current_max = _max
+
+
