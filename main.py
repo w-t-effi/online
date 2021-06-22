@@ -2,18 +2,21 @@ import numpy as np
 from skmultiflow.data import ConceptDriftStream, SEAGenerator
 from skmultiflow.drift_detection.adwin import ADWIN
 from sklearn.linear_model import Perceptron
+from fires import FIRES
 import warnings
+import shap
 
 warnings.filterwarnings("ignore")
 
 
 class ONLINE:
-    def __init__(self, stream, drift_detector, predictor):
+    def __init__(self, stream, drift_detector, predictor, fires_model=None):
         self.window_size = 300
         self.batch_size = 256
         self.stream = stream
         self.drift_detector = drift_detector
         self.predictor = predictor
+        self.fires_model = fires_model
 
         x, y = self.stream.next_sample(self.batch_size)
         self.current_min = np.min(x, axis=0)
@@ -22,12 +25,23 @@ class ONLINE:
         self.window_x = x
         self.window_y = y
 
-        predictor.fit(self.window_x, self.window_y)
+        self.predictor.fit(self.window_x, self.window_y)
 
     def run(self):
         ctr_outer = 0
         while self.stream.has_more_samples():
             y_pred = self.predictor.predict(self.window_x)
+
+            if fires_model:
+                ftr_weights = self.fires_model.weigh_features(self.window_x, self.window_y)
+                ftr_selection = np.argsort(ftr_weights)[::-1][:10]
+                x_reduced = np.zeros(self.window_x.shape)
+                x_reduced[:, ftr_selection] = self.window_x[:, ftr_selection]
+                self.window_x = x_reduced
+            else:
+                explainer = shap.Explainer(self.predictor, self.window_x)
+                shap_values = explainer(self.window_x)
+                shap.plots.beeswarm(shap_values)
 
             ctr_inner = 0
             for i in range(len(self.window_y)):
@@ -67,8 +81,20 @@ concept_drift_stream = ConceptDriftStream(
     width=1,
     random_state=0)
 
+fires_model = FIRES(n_total_ftr=concept_drift_stream.n_features,  # Total no. of features
+                    target_values=concept_drift_stream.target_values,  # Unique target values (class labels)
+                    mu_init=0,  # Initial importance parameter
+                    sigma_init=1,  # Initial uncertainty parameter
+                    penalty_s=0.01,  # Penalty factor for the uncertainty (corresponds to gamma_s in the paper)
+                    penalty_r=0.01,  # Penalty factor for the regularization (corresponds to gamma_r in the paper)
+                    epochs=1,  # No. of epochs that we use each batch of observations to update the parameters
+                    lr_mu=0.01,  # Learning rate for the gradient update of the importance
+                    lr_sigma=0.01,  # Learning rate for the gradient update of the uncertainty
+                    scale_weights=True,  # If True, scale feature weights into the range [0,1]
+                    model='probit')  # Name of the base model to compute the likelihood
+
 adwin = ADWIN()
 perceptron = Perceptron()
 
-online = ONLINE(concept_drift_stream, adwin, perceptron)
+online = ONLINE(concept_drift_stream, adwin, perceptron, fires_model)
 online.run()
