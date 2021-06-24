@@ -1,11 +1,28 @@
 import numpy as np
 import shap
 import matplotlib.pyplot as plt
+from skmultiflow.data.base_stream import Stream
+from skmultiflow.drift_detection.base_drift_detector import BaseDriftDetector
+from fires import FIRES
 from utils import get_kdd_conceptdrift_feature_names
 
 
 class ONLINE:
+    """
+    Online Normalization and Linear Explanations.
+    """
     def __init__(self, stream, drift_detector, predictor, fires_model=None, do_normalize=False, remove_outliers=False):
+        """
+        Initializes the ONLinE evaluation.
+
+        Args:
+            stream (Stream): the data stream
+            drift_detector (BaseDriftDetector): the drift detector
+            predictor: the predictor
+            fires_model (FIRES): the FIRES model (None if SHAP should be used)
+            do_normalize (bool): True if the data should be normalised, False otherwise
+            remove_outliers (bool): True if outliers should be removed, False otherwise
+        """
         self.stream = stream
         self.drift_detector = drift_detector
         self.predictor = predictor
@@ -38,6 +55,9 @@ class ONLINE:
         self.predictor.fit(self.window_x, self.window_y)
 
     def run(self):
+        """
+        Executes the ONLinE evaluation.
+        """
         ctr_outer = 0
         last_drift_outer = 0
         last_drift_inner = 0
@@ -88,6 +108,12 @@ class ONLINE:
         self.stream.restart()
 
     def run_fires(self):
+        """
+        Runs the FIRES feature selection.
+
+        Returns:
+            np.ndarray: the data slice with the selected features
+        """
         ftr_weights = self.fires_model.weigh_features(self.window_x, self.window_y)
         ftr_selection = np.argsort(ftr_weights)[::-1][:10]
         # TODO visualize feature weights
@@ -96,6 +122,12 @@ class ONLINE:
         return x_reduced
 
     def run_shap(self, time_step):
+        """
+        Runs the shap explainer and shows the evaluation plots.
+
+        Args:
+            time_step (int): the current time step of the evaluation
+        """
         explainer = shap.Explainer(self.predictor, self.window_x, feature_names=get_kdd_conceptdrift_feature_names())
         shap_values = explainer(self.window_x)
         plt.title(f'Time step: {time_step}, n samples: {self.window_x.shape[0]}')
@@ -103,14 +135,33 @@ class ONLINE:
         # plt.savefig(f'plots/shap{time_step}.png')
 
     def normalize(self, x):
+        """
+        Normalizes the feature vector.
+
+        Args:
+            x (np.ndarray): the feature vector
+
+        Returns:
+            np.ndarray: the normalized feature vector
+        """
         return (x - self.current_min) / (self.current_max - self.current_min + 10e-99)
 
-    def remove_outlier(self, x, y):
-        idx = np.linalg.norm(x - self.current_mean, axis=1) < np.linalg.norm(3 * self.current_std)
-
-        return x[idx], y[idx]
+    # def remove_outlier(self, x, y):
+    #     idx = np.linalg.norm(x - self.current_mean, axis=1) < np.linalg.norm(3 * self.current_std)
+    #
+    #     return x[idx], y[idx]
 
     def remove_outlier_class_sensitive(self, x, y):
+        """
+        Removes the outliers in a class sensitive fashion.
+
+        Args:
+            x (np.ndarray): the feature vector
+            y (np.ndarray): the labels of the feature vector
+
+        Returns:
+            (np.ndarray, np.ndarray): the feature vector and the labels without outliers
+        """
         x_0 = x[y == 0]
         x_1 = x[y == 1]
         mean_0 = np.mean(x_0, axis=0)
