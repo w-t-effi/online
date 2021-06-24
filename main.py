@@ -26,5 +26,5 @@ fires_model = FIRES(n_total_ftr=concept_drift_stream.n_features,  # Total no. of
 adwin = ADWIN()
 perceptron = Perceptron()
 
-online = ONLINE(concept_drift_stream, adwin, perceptron)#, fires_model)
+online = ONLINE(concept_drift_stream, adwin, perceptron, fires_model=None)
 online.run()
