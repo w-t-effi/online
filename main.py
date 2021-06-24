@@ -8,9 +8,10 @@ import warnings
 
 warnings.filterwarnings("ignore")
 
-file_name='data/spambase.csv'
+file_name = 'data/kdd_conceptdrift.csv'
 
 concept_drift_stream = FileStream(file_name, target_idx=0, n_targets=1)
+
 fires_model = FIRES(n_total_ftr=concept_drift_stream.n_features,  # Total no. of features
                     target_values=concept_drift_stream.target_values,  # Unique target values (class labels)
                     mu_init=0,  # Initial importance parameter
@@ -26,5 +27,5 @@ fires_model = FIRES(n_total_ftr=concept_drift_stream.n_features,  # Total no. of
 adwin = ADWIN()
 perceptron = Perceptron()
 
-online = ONLINE(concept_drift_stream, adwin, perceptron, fires_model=None)
+online = ONLINE(concept_drift_stream, adwin, perceptron, fires_model=None, do_normalize=True, remove_outliers=True)
 online.run()

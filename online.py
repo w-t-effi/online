@@ -4,17 +4,19 @@ import matplotlib.pyplot as plt
 
 
 class ONLINE:
-    def __init__(self, stream, drift_detector, predictor, fires_model=None, do_normalize=False):
+    def __init__(self, stream, drift_detector, predictor, fires_model=None, do_normalize=False, remove_outliers=False):
         self.stream = stream
         self.drift_detector = drift_detector
         self.predictor = predictor
         self.fires_model = fires_model
         self.do_normalize = do_normalize
+        self.remove_outliers = remove_outliers
         self.window_size = 300
         self.batch_size = 256
         self.n_frames_initial = 10
 
         x, y = self.stream.next_sample(self.batch_size)
+
         self.current_min = np.min(x, axis=0)
         self.current_max = np.max(x, axis=0)
         self.current_mean = np.mean(x, axis=0)
@@ -24,7 +26,9 @@ class ONLINE:
             x = self.normalize(x)
         self.window_x = x
         self.window_y = y
-        self.window_x, self.window_y = self.remove_outlier_class_sensitive(self.window_x, self.window_y)
+        if self.remove_outliers:
+            self.window_x, self.window_y = self.remove_outlier_class_sensitive(self.window_x, self.window_y)
+
         self.explanations_window_x = self.window_x
         self.explanations_window_y = self.window_y
 
@@ -63,10 +67,11 @@ class ONLINE:
                 break
             self.window_x = np.concatenate((self.window_x, x), axis=0)[-self.window_size:]
             self.window_y = np.concatenate((self.window_y, y))[-self.window_size:]
-            self.window_x, self.window_y = self.remove_outlier_class_sensitive(self.window_x, self.window_y)
             self.explanations_window_x = np.concatenate((self.explanations_window_x, x), axis=0)
             self.explanations_window_y = np.concatenate((self.explanations_window_y, y))
-            self.explanations_window_x, self.explanations_window_y = self.remove_outlier_class_sensitive(self.explanations_window_x, self.explanations_window_y)
+            if self.remove_outliers:
+                self.window_x, self.window_y = self.remove_outlier_class_sensitive(self.window_x, self.window_y)
+                self.explanations_window_x, self.explanations_window_y = self.remove_outlier_class_sensitive(self.explanations_window_x, self.explanations_window_y)
             ctr_outer += 1
 
         self.stream.restart()
@@ -84,7 +89,7 @@ class ONLINE:
         plt.savefig(f'test{time_step}.png')
 
     def normalize(self, x):
-        return (x - self.current_min) / (self.current_max - self.current_min)
+        return (x - self.current_min) / (self.current_max - self.current_min + 10e-99)
 
     def remove_outlier(self, x, y):
         idx = np.linalg.norm(x - self.current_mean, axis=1) < np.linalg.norm(3 * self.current_std)
