@@ -16,6 +16,8 @@ class ONLINE:
         self.batch_size = 256
         self.n_frames_explanations = 30
 
+        self.n_frames_initial = 10
+        self.k = 150
         x, y = self.stream.next_sample(self.batch_size)
 
         self.current_min = np.min(x, axis=0)
@@ -37,6 +39,8 @@ class ONLINE:
 
     def run(self):
         ctr_outer = 0
+        last_drift_outer = 0
+        last_drift_inner = 0
         while self.stream.has_more_samples():
             y_pred = self.predictor.predict(self.window_x)
 
@@ -50,11 +54,18 @@ class ONLINE:
 
                 if self.drift_detector.detected_change():
                     print(f'Change detected at index: {ctr_outer}.{ctr_inner}')
-                    self.current_max = np.max(self.window_x, axis=0)
-                    self.current_min = np.min(self.window_x, axis=0)
-                    self.current_mean = np.mean(self.window_x, axis=0)
-                    self.current_std = np.std(self.window_x, axis=0)
-                    break
+
+                    if ctr_outer - last_drift_outer == 1:
+                        self.k = self.window_size - last_drift_inner + ctr_inner
+                    elif ctr_outer == last_drift_outer:
+                        self.k = ctr_inner - last_drift_inner
+                    else:
+                        self.k = self.window_size
+                    drift_window = self.window_x[ctr_inner:ctr_inner + self.k, :]
+                    self.current_max = np.max(drift_window, axis=0)
+                    self.current_min = np.min(drift_window, axis=0)
+                    last_drift_inner = ctr_inner
+                    last_drift_outer = ctr_outer
                 ctr_inner += 1
 
             try:
