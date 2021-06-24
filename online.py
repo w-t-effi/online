@@ -12,7 +12,7 @@ class ONLINE:
         self.do_normalize = do_normalize
         self.window_size = 300
         self.batch_size = 256
-        self.n_frames_for_shap_eval = 10
+        self.n_frames_initial = 10
 
         x, y = self.stream.next_sample(self.batch_size)
         self.current_min = np.min(x, axis=0)
@@ -24,8 +24,8 @@ class ONLINE:
             x = self.normalize(x)
         self.window_x = x
         self.window_y = y
-        self.explanations_x = x
-        self.explanations_y = y
+        self.explanations_window_x = x
+        self.explanations_window_y = y
 
         self.predictor.fit(self.window_x, self.window_y)
 
@@ -34,10 +34,10 @@ class ONLINE:
         while self.stream.has_more_samples():
             y_pred = self.predictor.predict(self.window_x)
 
-            if ctr_outer == self.n_frames_for_shap_eval:
+            if ctr_outer == self.n_frames_initial:
                 self.run_fires(ctr_outer) if self.fires_model else self.run_shap(ctr_outer)
-                self.explanations_x = self.explanations_x[-self.batch_size:]
-                self.explanations_y = self.explanations_y[-self.batch_size:]
+                self.explanations_window_x = self.explanations_window_x[-self.batch_size:]
+                self.explanations_window_y = self.explanations_window_y[-self.batch_size:]
 
             ctr_inner = 0
             for i in range(len(self.window_y)):
@@ -46,8 +46,8 @@ class ONLINE:
                 if self.drift_detector.detected_change():
                     print(f'Change detected at index: {ctr_outer}.{ctr_inner}')
                     self.run_fires(ctr_outer) if self.fires_model else self.run_shap(ctr_outer)
-                    self.explanations_x = self.explanations_x[-self.batch_size:]
-                    self.explanations_y = self.explanations_y[-self.batch_size:]
+                    self.explanations_window_x = self.explanations_window_x[-self.batch_size:]
+                    self.explanations_window_y = self.explanations_window_y[-self.batch_size:]
                     self.current_max = np.max(self.window_x, axis=0)
                     self.current_min = np.min(self.window_x, axis=0)
                     self.current_mean = np.mean(self.window_x, axis=0)
@@ -63,21 +63,21 @@ class ONLINE:
             self.window_x = np.concatenate((self.window_x, x), axis=0)[-self.window_size:]
             self.window_y = np.concatenate((self.window_y, y))[-self.window_size:]
             self.window_x, self.window_y = self.remove_outlier_class_sensitive(self.window_x, self.window_y)
-            self.explanations_x = np.concatenate((self.explanations_x, x), axis=0)
-            self.explanations_y = np.concatenate((self.explanations_y, y))
+            self.explanations_window_x = np.concatenate((self.explanations_window_x, x), axis=0)
+            self.explanations_window_y = np.concatenate((self.explanations_window_y, y))
             ctr_outer += 1
 
         self.stream.restart()
 
     def run_fires(self, time_step):
-        ftr_weights = self.fires_model.weigh_features(self.explanations_x, self.explanations_y)
+        ftr_weights = self.fires_model.weigh_features(self.explanations_window_x, self.explanations_window_y)
         ftr_selection = np.argsort(ftr_weights)[::-1][:10]
-        x_reduced = np.zeros(self.explanations_x.shape)
-        x_reduced[:, ftr_selection] = self.explanations_x[:, ftr_selection]
+        x_reduced = np.zeros(self.explanations_window_x.shape)
+        x_reduced[:, ftr_selection] = self.explanations_window_x[:, ftr_selection]
 
     def run_shap(self, time_step):
-        explainer = shap.Explainer(self.predictor, self.explanations_x, feature_names=self.stream.feature_names)
-        shap_values = explainer(self.explanations_x)
+        explainer = shap.Explainer(self.predictor, self.explanations_window_x, feature_names=self.stream.feature_names)
+        shap_values = explainer(self.explanations_window_x)
         shap.plots.beeswarm(shap_values, show=False)
         plt.savefig(f'test{time_step}.png')
 
