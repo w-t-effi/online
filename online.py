@@ -24,8 +24,9 @@ class ONLINE:
             x = self.normalize(x)
         self.window_x = x
         self.window_y = y
-        self.explanations_window_x = x
-        self.explanations_window_y = y
+        self.window_x, self.window_y = self.remove_outlier_class_sensitive(self.window_x, self.window_y)
+        self.explanations_window_x = self.window_x
+        self.explanations_window_y = self.window_y
 
         self.predictor.fit(self.window_x, self.window_y)
 
@@ -65,6 +66,7 @@ class ONLINE:
             self.window_x, self.window_y = self.remove_outlier_class_sensitive(self.window_x, self.window_y)
             self.explanations_window_x = np.concatenate((self.explanations_window_x, x), axis=0)
             self.explanations_window_y = np.concatenate((self.explanations_window_y, y))
+            self.explanations_window_x, self.explanations_window_y = self.remove_outlier_class_sensitive(self.explanations_window_x, self.explanations_window_y)
             ctr_outer += 1
 
         self.stream.restart()
