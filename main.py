@@ -2,13 +2,15 @@ from skmultiflow.data import ConceptDriftStream, SEAGenerator
 from skmultiflow.drift_detection.adwin import ADWIN
 from sklearn.linear_model import Perceptron
 from fires import FIRES
-from online import ONLINE
+from online_try import ONLINE
 from skmultiflow.data import FileStream
 import warnings
 
 warnings.filterwarnings("ignore")
 
 file_name = 'data/kdd_conceptdrift.csv'
+#'C:\\Users\\Valeria\\Desktop\\Master\\Semester 4\\Explainability in Analytics\\repo\\data\\kdd_conceptdrift.csv'
+
 
 concept_drift_stream = FileStream(file_name, target_idx=0, n_targets=1)
 
