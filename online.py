@@ -211,11 +211,8 @@ class ONLINE:
         """
         Draws the selected features.
         """
-        print(ftr_weights)
         ftr_selection = np.argsort(ftr_weights)[::-1][:10]
-        print(ftr_selection)
         ftr_selection_vals = ftr_weights[ftr_selection]
-        print(ftr_selection_vals)
         feature_names = np.array(get_kdd_conceptdrift_feature_names())
 
         fig, ax = plt.subplots(figsize=(20, 12))
