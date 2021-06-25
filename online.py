@@ -3,20 +3,24 @@ from datetime import datetime
 import numpy as np
 import shap
 import matplotlib
+import random
+
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from skmultiflow.data.base_stream import Stream
 from skmultiflow.drift_detection.base_drift_detector import BaseDriftDetector
 from sklearn.metrics import accuracy_score
 from fires import FIRES
-from utils import get_spambase_feature_names
+from utils import get_kdd_conceptdrift_feature_names
 
 
 class ONLINE:
     """
     Online Normalization and Linear Explanations.
     """
-    def __init__(self, stream, drift_detector, predictor, fires_model=None, do_normalize=False, remove_outliers=False,delta=200,y_drift_detection=False):
+
+    def __init__(self, stream, drift_detector, predictor, fires_model=None, do_normalize=False, remove_outliers=False,
+                 delta=300, y_drift_detection=False):
         """
         Initializes the ONLinE evaluation.
 
@@ -33,7 +37,7 @@ class ONLINE:
         self.predictor = predictor
         self.fires_model = fires_model
         self.do_normalize = do_normalize
-        self.y_drift_detection=y_drift_detection
+        self.y_drift_detection = y_drift_detection
         self.remove_outliers = remove_outliers
         self.window_size = 300
         self.batch_size = 256
@@ -44,8 +48,8 @@ class ONLINE:
         self.accuracy_scores = []
 
         self.n_frames_initial = 10
-        self.k = self.window_size/2
-        self.delta=delta
+        self.k = self.window_size / 2
+        self.delta = delta
         x, y = self.stream.next_sample(self.batch_size)
 
         x_filtered = self.remove_outlier_class_sensitive(x, y) if self.remove_outliers else x
@@ -53,7 +57,7 @@ class ONLINE:
         self.current_max = np.max(x_filtered, axis=0)
         self.current_mean = np.mean(x_filtered, axis=0)
         self.current_std = np.std(x_filtered, axis=0)
-        self.former_mean=np.ones_like(self.current_mean)
+        self.former_mean = self.current_mean
 
         if self.do_normalize:
             x = self.normalize(x)
@@ -70,7 +74,8 @@ class ONLINE:
         self.dir_path = f'plots/{time_str}/'
         os.makedirs(self.dir_path)
         with open(self.dir_path + 'params.txt', "w") as file:
-            file.write(f'FIRES: {self.fires_model}\nNormalize: {self.do_normalize}\nRemove outliers: {self.remove_outliers}')
+            file.write(
+                f'FIRES: {self.fires_model}\nNormalize: {self.do_normalize}\nRemove outliers: {self.remove_outliers}')
 
     def run(self):
         """
@@ -90,7 +95,7 @@ class ONLINE:
             if self.y_drift_detection:
                 for i in range(len(self.window_y)):
                     self.drift_detector.add_element(self.window_y[i] == y_pred[i])
-                    
+
                     if self.drift_detector.detected_change():
                         print(f'Change detected at index: {ctr_outer}.{ctr_inner}')
 
@@ -100,6 +105,8 @@ class ONLINE:
                 self.detect_concept_drift_x()
             try:
                 x, y = self.stream.next_sample(self.batch_size)
+                #if ctr_outer%350==0:
+                    #y=random.shuffle(y)
                 if self.do_normalize:
                     x = self.normalize(x)
             except ValueError:
@@ -154,7 +161,7 @@ class ONLINE:
         Args:
             time_step (int): the current time step of the evaluation
         """
-        explainer = shap.Explainer(self.predictor, self.window_x, feature_names=get_spambase_feature_names())
+        explainer = shap.Explainer(self.predictor, self.window_x, feature_names=get_kdd_conceptdrift_feature_names())
         shap_values = explainer(self.window_x)
         ftr_weights = np.abs(shap_values.values).mean(axis=0)
         ftr_selection = np.argsort(ftr_weights)[::-1][:10]
@@ -185,36 +192,34 @@ class ONLINE:
             if ctr_outer - self.last_drift_outer == 1:
                 self.k = self.window_size - self.last_drift_inner + ctr_inner
             elif ctr_outer == self.last_drift_outer:
-                self.k = ctr_inner - last_drift_inner
+                self.k = ctr_inner - self.last_drift_inner
             else:
                 self.k = self.window_size
-                        
+
             drift_window_x = self.window_x[ctr_inner:ctr_inner + self.k, :]
             drift_window_y = self.window_y[ctr_inner:ctr_inner + self.k]
         drift_window_x_filtered = self.remove_outlier_class_sensitive(drift_window_x, drift_window_y) if self.remove_outliers else drift_window_x
 
-        self.former_mean = self.current_mean
+        former_mean = self.current_mean
         former_std = self.current_std
-        former_max= self.current_max
-        former_min= self.current_min
+        former_max = self.current_max
+        former_min = self.current_min
         if drift_window_x_filtered.shape[0] > 0:
             self.current_max = np.max(drift_window_x_filtered, axis=0)
-            self.current_min = np.min(drift_window_x_filtered, axis=0) 
+            self.current_min = np.min(drift_window_x_filtered, axis=0)
             self.current_mean = np.mean(drift_window_x_filtered, axis=0)
-            self.current_std = np.std(drift_window_x_filtered, axis = 0)
-        
+            self.current_std = np.std(drift_window_x_filtered, axis=0)
 
-        #interpolate bw current and previous max/min
-        if drift_window_x_filtered.shape[0] < self.window_size/2:
-            if(self.k< self.window_size/2):
-                self.current_max= (1-self.gamma)*self.current_max+self.gamma*former_max
-                self.current_min= (1-self.gamma)*self.current_min+self.gamma*former_min
-                self.current_mean = (1-self.gamma)*self.current_mean+self.gamma*former_mean
-                self.current_std = (1-self.gamma)*self.current_std+self.gamma*former_std
-        
+        # interpolate bw current and previous max/min
+        if drift_window_x_filtered.shape[0] < self.window_size / 2:
+            if self.k < self.window_size / 2:
+                self.current_max = (1 - self.gamma) * self.current_max + self.gamma * former_max
+                self.current_min = (1 - self.gamma) * self.current_min + self.gamma * former_min
+                self.current_mean = (1 - self.gamma) * self.current_mean + self.gamma * former_mean
+                self.current_std = (1 - self.gamma) * self.current_std + self.gamma * former_std
 
     def normalize(self, x):
-        return (x-self.current_mean)/(self.current_std+ 10e-9)
+        return (x - self.current_mean) / (self.current_std + 10e-99)
 
     @staticmethod
     def remove_outlier_class_sensitive(x, y):
@@ -254,7 +259,7 @@ class ONLINE:
         counts = np.bincount(y)
         top_ftr_idx = counts.argsort()[-10:][::-1]
         ax.bar(np.arange(10), counts[top_ftr_idx], width=0.3, zorder=100)
-        ax.set_xticklabels(np.asarray(get_spambase_feature_names())[top_ftr_idx], rotation=15, ha='right')
+        ax.set_xticklabels(np.asarray(get_kdd_conceptdrift_feature_names())[top_ftr_idx], rotation=15, ha='right')
         ax.set_ylabel('Times Selected', size=20, labelpad=1.5)
         ax.set_xlabel('Top 10 Features', size=20, labelpad=1.6)
         ax.tick_params(axis='both', labelsize=20 * 0.7, length=0)
@@ -270,7 +275,7 @@ class ONLINE:
         """
         ftr_selection = np.argsort(ftr_weights)[::-1][:10]
         ftr_selection_vals = ftr_weights[ftr_selection]
-        feature_names = np.array(get_spambase_feature_names())
+        feature_names = np.array(get_kdd_conceptdrift_feature_names())
 
         plt.ioff()
 
@@ -288,9 +293,16 @@ class ONLINE:
     def detect_concept_drift_x(self):
         current_mean = np.mean(self.window_x, axis = 0)
         #print(np.linalg.norm(np.abs(current_mean-self.current_mean)/(self.current_mean+1e-10)))
-        if(np.linalg.norm(np.abs(current_mean-self.current_mean)/(self.current_mean+1e-10))>self.delta):
+        #a=np.linalg.norm(np.abs(current_mean-self.current_mean)/(self.current_mean+10e-99))
+        #b=np.linalg.norm(self.current_mean/np.abs(current_mean-self.current_mean+10e-99))
+        a=np.linalg.norm(np.abs(current_mean/(self.current_mean+10e-99)))
+        b=np.linalg.norm(np.abs(self.current_mean/(current_mean+10e-99)))
+        diff=np.min((a,b))
+        if (np.linalg.norm(np.abs(current_mean-self.current_mean)/(self.current_mean+1e-10)))>self.delta:
             #print(np.linalg.norm(np.abs(self.current_mean-self.former_mean)/(self.former_mean+1e-10)))
             self.update_statistics()
+
+    
 
     def draw_accuracy(self):
         plt.ioff()
