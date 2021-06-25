@@ -1,6 +1,7 @@
 import numpy as np
 import shap
 import matplotlib
+
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from skmultiflow.data.base_stream import Stream
@@ -74,7 +75,7 @@ class ONLINE:
             ctr_inner = 0
             for i in range(len(self.window_y)):
                 self.drift_detector.add_element(self.window_y[i] == y_pred[i])
-                
+
                 if self.drift_detector.detected_change():
                     print(f'Change detected at index: {ctr_outer}.{ctr_inner}')
 
@@ -89,20 +90,21 @@ class ONLINE:
                     drift_window_y = self.window_y[ctr_inner:ctr_inner + self.k]
                     drift_window_x_filtered = self.remove_outlier_class_sensitive(drift_window_x, drift_window_y) if self.remove_outliers else drift_window_x
 
-                    former_max= self.current_max
-                    former_min= self.current_min
+                    former_max = self.current_max
+                    former_min = self.current_min
                     self.current_max = np.max(drift_window_x_filtered, axis=0) if drift_window_x_filtered.shape[0] > 0 else self.current_max
                     self.current_min = np.min(drift_window_x_filtered, axis=0) if drift_window_x_filtered.shape[0] > 0 else self.current_max
-                    #interpolate bw current and previous max/min
-                    current_max= (1-self.gamma)*self.current_max+self.gamma*former_max
-                    current_min= (1-self.gamma)*self.current_min+self.gamma*former_min
+
+                    # interpolate bw current and previous max/min
+                    self.current_max = (1 - self.gamma) * self.current_max + self.gamma * former_max
+                    self.current_min = (1 - self.gamma) * self.current_min + self.gamma * former_min
                     last_drift_inner = ctr_inner
                     last_drift_outer = ctr_outer
-                    no_drift_detected=False
+                    no_drift_detected = False
                 ctr_inner += 1
-            if(no_drift_detected):
-                self.current_max = np.max(window_x, axis = 0)
-                self.current_min = np.min(window_x, axis = 0)
+            if no_drift_detected:
+                self.current_max = np.max(self.window_x, axis=0)
+                self.current_min = np.min(self.window_x, axis=0)
 
             try:
                 x, y = self.stream.next_sample(self.batch_size)
@@ -194,14 +196,11 @@ class ONLINE:
         bools[y == 0] = bools_0
         bools[y == 1] = bools_1
 
-        return x[bools == 1]  # , y[bools == 1]
+        return x[bools == 1]
 
     def draw_top_features_plot(self):
         """
         Draws the most selected features over time.
-
-        Args:
-            feature_names (list): the list of feature names
         """
         selection = self.fires_model.selection if self.fires_model else self.shap_top_features
         fig, ax = plt.subplots(figsize=(20, 12))
