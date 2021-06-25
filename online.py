@@ -39,13 +39,11 @@ class ONLINE:
         self.k = 150
         x, y = self.stream.next_sample(self.batch_size)
 
-        if self.remove_outliers:
-            x, y = self.remove_outlier_class_sensitive(x, y)
-
-        self.current_min = np.min(x, axis=0)
-        self.current_max = np.max(x, axis=0)
-        self.current_mean = np.mean(x, axis=0)
-        self.current_std = np.std(x, axis=0)
+        x_filtered = self.remove_outlier_class_sensitive(x, y) if self.remove_outliers else x
+        self.current_min = np.min(x_filtered, axis=0)
+        self.current_max = np.max(x_filtered, axis=0)
+        self.current_mean = np.mean(x_filtered, axis=0)
+        self.current_std = np.std(x_filtered, axis=0)
 
         if self.do_normalize:
             x = self.normalize(x)
@@ -83,9 +81,13 @@ class ONLINE:
                         self.k = ctr_inner - last_drift_inner
                     else:
                         self.k = self.window_size
-                    drift_window = self.window_x[ctr_inner:ctr_inner + self.k, :]
-                    self.current_max = np.max(drift_window, axis=0)
-                    self.current_min = np.min(drift_window, axis=0)
+
+                    drift_window_x = self.window_x[ctr_inner:ctr_inner + self.k, :]
+                    drift_window_y = self.window_y[ctr_inner:ctr_inner + self.k]
+                    drift_window_x_filtered = self.remove_outlier_class_sensitive(drift_window_x, drift_window_y) if self.remove_outliers else drift_window_x
+
+                    self.current_max = np.max(drift_window_x_filtered, axis=0) if drift_window_x_filtered.shape[0] > 0 else self.current_max
+                    self.current_min = np.min(drift_window_x_filtered, axis=0) if drift_window_x_filtered.shape[0] > 0 else self.current_max
                     last_drift_inner = ctr_inner
                     last_drift_outer = ctr_outer
                 ctr_inner += 1
@@ -98,8 +100,6 @@ class ONLINE:
                 break
             self.window_x = np.concatenate((self.window_x, x), axis=0)[-self.window_size:]
             self.window_y = np.concatenate((self.window_y, y))[-self.window_size:]
-            if self.remove_outliers:
-                self.window_x, self.window_y = self.remove_outlier_class_sensitive(self.window_x, self.window_y)
 
             if self.fires_model:
                 self.window_x = self.run_fires()
@@ -180,7 +180,7 @@ class ONLINE:
         bools[y == 0] = bools_0
         bools[y == 1] = bools_1
 
-        return x[bools == 1], y[bools == 1]
+        return x[bools == 1]  # , y[bools == 1]
 
     def draw_top_features_plot(self, feature_names):
         """
