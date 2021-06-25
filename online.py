@@ -9,14 +9,14 @@ from skmultiflow.data.base_stream import Stream
 from skmultiflow.drift_detection.base_drift_detector import BaseDriftDetector
 from sklearn.metrics import accuracy_score
 from fires import FIRES
-from utils import get_kdd_conceptdrift_feature_names
+from utils import get_spambase_feature_names
 
 
 class ONLINE:
     """
     Online Normalization and Linear Explanations.
     """
-    def __init__(self, stream, drift_detector, predictor, fires_model=None, do_normalize=False, remove_outliers=False,delta=0.1,y_drift_detection=False):
+    def __init__(self, stream, drift_detector, predictor, fires_model=None, do_normalize=False, remove_outliers=False,delta=200,y_drift_detection=False):
         """
         Initializes the ONLinE evaluation.
 
@@ -154,7 +154,7 @@ class ONLINE:
         Args:
             time_step (int): the current time step of the evaluation
         """
-        explainer = shap.Explainer(self.predictor, self.window_x, feature_names=get_kdd_conceptdrift_feature_names())
+        explainer = shap.Explainer(self.predictor, self.window_x, feature_names=get_spambase_feature_names())
         shap_values = explainer(self.window_x)
         ftr_weights = np.abs(shap_values.values).mean(axis=0)
         ftr_selection = np.argsort(ftr_weights)[::-1][:10]
@@ -214,7 +214,7 @@ class ONLINE:
         
 
     def normalize(self, x):
-        return (x-self.current_mean)/(self.current_std+ 10e-99)
+        return (x-self.current_mean)/(self.current_std+ 10e-9)
 
     @staticmethod
     def remove_outlier_class_sensitive(x, y):
@@ -254,7 +254,7 @@ class ONLINE:
         counts = np.bincount(y)
         top_ftr_idx = counts.argsort()[-10:][::-1]
         ax.bar(np.arange(10), counts[top_ftr_idx], width=0.3, zorder=100)
-        ax.set_xticklabels(np.asarray(get_kdd_conceptdrift_feature_names())[top_ftr_idx], rotation=15, ha='right')
+        ax.set_xticklabels(np.asarray(get_spambase_feature_names())[top_ftr_idx], rotation=15, ha='right')
         ax.set_ylabel('Times Selected', size=20, labelpad=1.5)
         ax.set_xlabel('Top 10 Features', size=20, labelpad=1.6)
         ax.tick_params(axis='both', labelsize=20 * 0.7, length=0)
@@ -270,7 +270,7 @@ class ONLINE:
         """
         ftr_selection = np.argsort(ftr_weights)[::-1][:10]
         ftr_selection_vals = ftr_weights[ftr_selection]
-        feature_names = np.array(get_kdd_conceptdrift_feature_names())
+        feature_names = np.array(get_spambase_feature_names())
 
         plt.ioff()
 
@@ -286,7 +286,10 @@ class ONLINE:
         plt.close()
 
     def detect_concept_drift_x(self):
-        if(np.linalg.norm(np.abs(self.current_mean-self.former_mean)/(self.former_mean+1e-10))>self.delta):
+        current_mean = np.mean(self.window_x, axis = 0)
+        #print(np.linalg.norm(np.abs(current_mean-self.current_mean)/(self.current_mean+1e-10)))
+        if(np.linalg.norm(np.abs(current_mean-self.current_mean)/(self.current_mean+1e-10))>self.delta):
+            #print(np.linalg.norm(np.abs(self.current_mean-self.former_mean)/(self.former_mean+1e-10)))
             self.update_statistics()
 
     def draw_accuracy(self):
