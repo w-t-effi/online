@@ -68,10 +68,11 @@ class ONLINE:
             if not self.fires_model:
                 self.run_shap(ctr_outer)
 
+            no_drift_detected = True
             ctr_inner = 0
             for i in range(len(self.window_y)):
                 self.drift_detector.add_element(self.window_y[i] == y_pred[i])
-
+                
                 if self.drift_detector.detected_change():
                     print(f'Change detected at index: {ctr_outer}.{ctr_inner}')
 
@@ -95,7 +96,11 @@ class ONLINE:
                     current_min= (1-self.gamma)*self.current_min+self.gamma*former_min
                     last_drift_inner = ctr_inner
                     last_drift_outer = ctr_outer
+                    no_drift_detected=False
                 ctr_inner += 1
+            if(no_drift_detected):
+                self.current_max = np.max(window_x, axis = 0)
+                self.current_min = np.min(window_x, axis = 0)
 
             try:
                 x, y = self.stream.next_sample(self.batch_size)
