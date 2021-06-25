@@ -51,7 +51,7 @@ class ONLINE:
         self.window_y = y
 
         if self.fires_model:
-            self.window_x = self.run_fires()
+            self.window_x = self.run_fires(0)
 
         self.predictor.fit(self.window_x, self.window_y)
 
@@ -107,15 +107,15 @@ class ONLINE:
             self.window_y = np.concatenate((self.window_y, y))[-self.window_size:]
 
             if self.fires_model:
-                self.window_x = self.run_fires()
+                self.window_x = self.run_fires(ctr_outer)
 
             self.predictor.partial_fit(self.window_x, self.window_y)
             ctr_outer += 1
 
-        self.draw_top_features_plot(get_kdd_conceptdrift_feature_names())
+        self.draw_top_features_plot()
         self.stream.restart()
 
-    def run_fires(self):
+    def run_fires(self, time_step):
         """
         Runs the FIRES feature selection.
 
@@ -125,7 +125,8 @@ class ONLINE:
         ftr_weights = self.fires_model.weigh_features(self.window_x, self.window_y)
         ftr_selection = np.argsort(ftr_weights)[::-1][:10]
         self.fires_model.selection.append(ftr_selection.tolist())
-        # TODO visualize feature weights
+        if time_step % self.n_frames_explanations == 0 and time_step != 0:
+            self.draw_selection_plot(ftr_weights, time_step)
         x_reduced = np.zeros(self.window_x.shape)
         x_reduced[:, ftr_selection] = self.window_x[:, ftr_selection]
         return x_reduced
@@ -187,15 +188,12 @@ class ONLINE:
 
         return x[bools == 1]  # , y[bools == 1]
 
-    def draw_top_features_plot(self, feature_names):
+    def draw_top_features_plot(self):
         """
         Draws the most selected features over time.
 
         Args:
             feature_names (list): the list of feature names
-
-        Returns:
-            Axes: the Axes object containing the bar plot
         """
         selection = self.fires_model.selection if self.fires_model else self.shap_top_features
         fig, ax = plt.subplots(figsize=(20, 12))
@@ -204,12 +202,31 @@ class ONLINE:
         counts = np.bincount(y)
         top_ftr_idx = counts.argsort()[-10:][::-1]
         ax.bar(np.arange(10), counts[top_ftr_idx], width=0.3, zorder=100)
-        ax.set_xticklabels(np.asarray(feature_names)[top_ftr_idx], rotation=15, ha='right')
+        ax.set_xticklabels(np.asarray(get_kdd_conceptdrift_feature_names())[top_ftr_idx], rotation=15, ha='right')
         ax.set_ylabel('Times Selected', size=20, labelpad=1.5)
         ax.set_xlabel('Top 10 Features', size=20, labelpad=1.6)
         ax.tick_params(axis='both', labelsize=20 * 0.7, length=0)
         ax.set_xticks(np.arange(10))
         ax.set_xlim(-0.2, 9.2)
         title = "FIRES top features" if self.fires_model else "SHAP top features"
-        plt.title(title)
+        plt.title(title, size=20)
+        plt.show()
+
+    def draw_selection_plot(self, ftr_weights, time_step):
+        """
+        Draws the selected features.
+        """
+        ftr_selection = np.argsort(ftr_weights)[::-1][:10]
+        ftr_selection_vals = ftr_weights[ftr_selection]
+        feature_names = np.array(get_kdd_conceptdrift_feature_names())
+
+        fig, ax = plt.subplots(figsize=(20, 12))
+        ax.grid(True, axis='y')
+
+        ax.bar(np.arange(len(ftr_selection)), ftr_selection_vals)
+        ax.set_xticks(np.arange(len(ftr_selection)))
+        ax.set_xticklabels(feature_names[ftr_selection], rotation=15)
+        ax.set_xlabel('Top Features', size=20, labelpad=1.6)
+        ax.set_ylabel('Feature Weights', size=20, labelpad=1.5)
+        plt.title(f'Time step: {time_step}, n samples: {self.window_x.shape[0]}', size=20)
         plt.show()
