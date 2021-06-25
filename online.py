@@ -1,5 +1,7 @@
 import numpy as np
 import shap
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from skmultiflow.data.base_stream import Stream
 from skmultiflow.drift_detection.base_drift_detector import BaseDriftDetector
@@ -140,8 +142,9 @@ class ONLINE:
         if time_step % self.n_frames_explanations == 0 and time_step != 0:
             shap_values = explainer(self.window_x)
             plt.title(f'Time step: {time_step}, n samples: {self.window_x.shape[0]}')
-            shap.plots.beeswarm(shap_values, plot_size=(20, 10), show=True)
-            # plt.savefig(f'plots/shap{time_step}.png')
+            shap.plots.beeswarm(shap_values, plot_size=(30, 15), show=False)
+            plt.savefig(f'plots/shap{time_step}.png', bbox_inches='tight')
+            plt.close()
 
     def normalize(self, x):
         """
@@ -203,9 +206,11 @@ class ONLINE:
         ax.tick_params(axis='both', labelsize=20 * 0.7, length=0)
         ax.set_xticks(np.arange(10))
         ax.set_xlim(-0.2, 9.2)
-        title = "FIRES top features" if self.fires_model else "SHAP top features"
+        title = 'FIRES top features' if self.fires_model else 'SHAP top features'
         plt.title(title, size=20)
-        plt.show()
+        path_name = 'fires_top.png' if self.fires_model else 'shap_top.png'
+        plt.savefig(path_name, bbox_inches='tight')
+        plt.close()
 
     def draw_selection_plot(self, ftr_weights, time_step):
         """
@@ -214,6 +219,8 @@ class ONLINE:
         ftr_selection = np.argsort(ftr_weights)[::-1][:10]
         ftr_selection_vals = ftr_weights[ftr_selection]
         feature_names = np.array(get_kdd_conceptdrift_feature_names())
+
+        plt.ioff()
 
         fig, ax = plt.subplots(figsize=(20, 12))
         ax.grid(True, axis='y')
@@ -224,4 +231,5 @@ class ONLINE:
         ax.set_xlabel('Top Features', size=20, labelpad=1.6)
         ax.set_ylabel('Feature Weights', size=20, labelpad=1.5)
         plt.title(f'Time step: {time_step}, n samples: {self.window_x.shape[0]}', size=20)
-        plt.show()
+        plt.savefig(f'plots/fires{time_step}.png', bbox_inches='tight')
+        plt.close()
