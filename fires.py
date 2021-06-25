@@ -37,6 +37,7 @@ class FIRES:
         self.lr_sigma = lr_sigma
         self.scale_weights = scale_weights
         self.model = model
+        self.selection = []
 
         # Additional model-specific parameters
         self.model_param = {}

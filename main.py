@@ -9,7 +9,7 @@ import warnings
 warnings.filterwarnings("ignore")
 
 file_name = 'data/kdd_conceptdrift.csv'
-#'C:\\Users\\Valeria\\Desktop\\Master\\Semester 4\\Explainability in Analytics\\repo\\data\\kdd_conceptdrift.csv'
+# 'C:\\Users\\Valeria\\Desktop\\Master\\Semester 4\\Explainability in Analytics\\repo\\data\\kdd_conceptdrift.csv'
 
 
 concept_drift_stream = FileStream(file_name, target_idx=0, n_targets=1)

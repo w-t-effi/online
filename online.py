@@ -33,9 +33,14 @@ class ONLINE:
         self.batch_size = 256
         self.n_frames_explanations = 30
 
+        self.shap_top_features = []
+
         self.n_frames_initial = 10
         self.k = 150
         x, y = self.stream.next_sample(self.batch_size)
+
+        if self.remove_outliers:
+            x, y = self.remove_outlier_class_sensitive(x, y)
 
         self.current_min = np.min(x, axis=0)
         self.current_max = np.max(x, axis=0)
@@ -46,8 +51,6 @@ class ONLINE:
             x = self.normalize(x)
         self.window_x = x
         self.window_y = y
-        if self.remove_outliers:
-            self.window_x, self.window_y = self.remove_outlier_class_sensitive(self.window_x, self.window_y)
 
         if self.fires_model:
             self.window_x = self.run_fires()
@@ -65,8 +68,7 @@ class ONLINE:
             y_pred = self.predictor.predict(self.window_x)
 
             if not self.fires_model:
-                if ctr_outer % self.n_frames_explanations == 0 and ctr_outer != 0:
-                    self.run_shap(ctr_outer)
+                self.run_shap(ctr_outer)
 
             ctr_inner = 0
             for i in range(len(self.window_y)):
@@ -105,6 +107,7 @@ class ONLINE:
             self.predictor.partial_fit(self.window_x, self.window_y)
             ctr_outer += 1
 
+        self.draw_top_features_plot(get_kdd_conceptdrift_feature_names())
         self.stream.restart()
 
     def run_fires(self):
@@ -116,6 +119,7 @@ class ONLINE:
         """
         ftr_weights = self.fires_model.weigh_features(self.window_x, self.window_y)
         ftr_selection = np.argsort(ftr_weights)[::-1][:10]
+        self.fires_model.selection.append(ftr_selection.tolist())
         # TODO visualize feature weights
         x_reduced = np.zeros(self.window_x.shape)
         x_reduced[:, ftr_selection] = self.window_x[:, ftr_selection]
@@ -129,10 +133,14 @@ class ONLINE:
             time_step (int): the current time step of the evaluation
         """
         explainer = shap.Explainer(self.predictor, self.window_x, feature_names=get_kdd_conceptdrift_feature_names())
-        shap_values = explainer(self.window_x)
-        plt.title(f'Time step: {time_step}, n samples: {self.window_x.shape[0]}')
-        shap.plots.beeswarm(shap_values, plot_size=(20, 10), show=True)
-        # plt.savefig(f'plots/shap{time_step}.png')
+        ftr_weights = explainer.coef
+        ftr_selection = np.argsort(ftr_weights)[::-1][:10]
+        self.shap_top_features.append(ftr_selection)
+        if time_step % self.n_frames_explanations == 0 and time_step != 0:
+            shap_values = explainer(self.window_x)
+            plt.title(f'Time step: {time_step}, n samples: {self.window_x.shape[0]}')
+            shap.plots.beeswarm(shap_values, plot_size=(20, 10), show=True)
+            # plt.savefig(f'plots/shap{time_step}.png')
 
     def normalize(self, x):
         """
@@ -146,12 +154,8 @@ class ONLINE:
         """
         return (x - self.current_min) / (self.current_max - self.current_min + 10e-99)
 
-    # def remove_outlier(self, x, y):
-    #     idx = np.linalg.norm(x - self.current_mean, axis=1) < np.linalg.norm(3 * self.current_std)
-    #
-    #     return x[idx], y[idx]
-
-    def remove_outlier_class_sensitive(self, x, y):
+    @staticmethod
+    def remove_outlier_class_sensitive(x, y):
         """
         Removes the outliers in a class sensitive fashion.
 
@@ -177,3 +181,30 @@ class ONLINE:
         bools[y == 1] = bools_1
 
         return x[bools == 1], y[bools == 1]
+
+    def draw_top_features_plot(self, feature_names):
+        """
+        Draws the most selected features over time.
+
+        Args:
+            feature_names (list): the list of feature names
+
+        Returns:
+            Axes: the Axes object containing the bar plot
+        """
+        selection = self.fires_model.selection if self.fires_model else self.shap_top_features
+        fig, ax = plt.subplots(figsize=(20, 12))
+        ax.grid(True, axis='y')
+        y = [feature for features in selection for feature in features]
+        counts = np.bincount(y)
+        top_ftr_idx = counts.argsort()[-10:][::-1]
+        ax.bar(np.arange(10), counts[top_ftr_idx], width=0.3, zorder=100)
+        ax.set_xticklabels(np.asarray(feature_names)[top_ftr_idx], rotation=15, ha='right')
+        ax.set_ylabel('Times Selected', size=20, labelpad=1.5)
+        ax.set_xlabel('Top 10 Features', size=20, labelpad=1.6)
+        ax.tick_params(axis='both', labelsize=20 * 0.7, length=0)
+        ax.set_xticks(np.arange(10))
+        ax.set_xlim(-0.2, 9.2)
+        title = "FIRES top features" if self.fires_model else "SHAP top features"
+        plt.title(title)
+        plt.show()
