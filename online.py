@@ -1,8 +1,13 @@
+import os
+from datetime import datetime
 import numpy as np
 import shap
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from skmultiflow.data.base_stream import Stream
 from skmultiflow.drift_detection.base_drift_detector import BaseDriftDetector
+from sklearn.metrics import accuracy_score
 from fires import FIRES
 from utils import get_kdd_conceptdrift_feature_names
 
@@ -28,13 +33,15 @@ class ONLINE:
         self.predictor = predictor
         self.fires_model = fires_model
         self.do_normalize = do_normalize
-        self.y_drift_detection=False
+        self.y_drift_detection=y_drift_detection
         self.remove_outliers = remove_outliers
         self.window_size = 300
         self.batch_size = 256
         self.n_frames_explanations = 30
         self.gamma = 0.3
         self.shap_top_features = []
+        self.predictor_top_features = []
+        self.accuracy_scores = []
 
         self.n_frames_initial = 10
         self.k = self.window_size/2
@@ -57,6 +64,13 @@ class ONLINE:
             self.window_x = self.run_fires(0)
 
         self.predictor.fit(self.window_x, self.window_y)
+        time_obj = datetime.now()
+        time_str = f'{time_obj.year}-{time_obj.month}-{time_obj.day}_{time_obj.hour}-{time_obj.minute}-{time_obj.second}'
+
+        self.dir_path = f'plots/{time_str}/'
+        os.makedirs(self.dir_path)
+        with open(self.dir_path + 'params.txt', "w") as file:
+            file.write(f'FIRES: {self.fires_model}\nNormalize: {self.do_normalize}\nRemove outliers: {self.remove_outliers}')
 
     def run(self):
         """
@@ -67,6 +81,7 @@ class ONLINE:
         self.last_drift_inner = 0
         while self.stream.has_more_samples():
             y_pred = self.predictor.predict(self.window_x)
+            self.accuracy_scores.append(accuracy_score(self.window_y, y_pred))
 
             if not self.fires_model:
                 self.run_shap(ctr_outer)
@@ -79,7 +94,7 @@ class ONLINE:
                     if self.drift_detector.detected_change():
                         print(f'Change detected at index: {ctr_outer}.{ctr_inner}')
 
-                        self.update_statistics(self.window_x, ctr_inner, ctr_outer)
+                        self.update_statistics(ctr_inner, ctr_outer)
                     ctr_inner += 1
             else:
                 self.detect_concept_drift_x()
@@ -96,9 +111,22 @@ class ONLINE:
                 self.window_x = self.run_fires(ctr_outer)
 
             self.predictor.partial_fit(self.window_x, self.window_y)
+            ftr_weights = self.predictor.coef_[0]
+            ftr_selection = np.argsort(ftr_weights)[::-1][:10]
+            self.predictor_top_features.append(ftr_selection)
+            if ctr_outer % self.n_frames_explanations == 0 and ctr_outer != 0:
+                title = f'Prediction weights. Time step: {ctr_outer}, n samples: {self.window_x.shape[0]}'
+                path_name = f'prediction{ctr_outer}.png'
+                self.draw_selection_plot(ftr_weights, title, path_name)
+
             ctr_outer += 1
 
-        self.draw_top_features_plot()
+        selection = self.fires_model.selection if self.fires_model else self.shap_top_features
+        title = 'FIRES top features' if self.fires_model else 'SHAP top features'
+        path_name = 'fires_top.png' if self.fires_model else 'shap_top.png'
+        self.draw_top_features_plot(selection, title, path_name)
+        self.draw_top_features_plot(self.predictor_top_features, 'Predictor top features', 'predictor_top.png')
+        self.draw_accuracy()
         self.stream.restart()
 
     def run_fires(self, time_step):
@@ -112,7 +140,9 @@ class ONLINE:
         ftr_selection = np.argsort(ftr_weights)[::-1][:10]
         self.fires_model.selection.append(ftr_selection.tolist())
         if time_step % self.n_frames_explanations == 0 and time_step != 0:
-            self.draw_selection_plot(ftr_weights, time_step)
+            title = f'FIRES weights. Time step: {time_step}, n samples: {self.window_x.shape[0]}'
+            path_name = f'fires{time_step}.png'
+            self.draw_selection_plot(ftr_weights, title, path_name)
         x_reduced = np.zeros(self.window_x.shape)
         x_reduced[:, ftr_selection] = self.window_x[:, ftr_selection]
         return x_reduced
@@ -125,14 +155,15 @@ class ONLINE:
             time_step (int): the current time step of the evaluation
         """
         explainer = shap.Explainer(self.predictor, self.window_x, feature_names=get_kdd_conceptdrift_feature_names())
-        ftr_weights = explainer.coef
+        shap_values = explainer(self.window_x)
+        ftr_weights = np.abs(shap_values.values).mean(axis=0)
         ftr_selection = np.argsort(ftr_weights)[::-1][:10]
         self.shap_top_features.append(ftr_selection)
         if time_step % self.n_frames_explanations == 0 and time_step != 0:
-            shap_values = explainer(self.window_x)
-            plt.title(f'Time step: {time_step}, n samples: {self.window_x.shape[0]}')
-            shap.plots.beeswarm(shap_values, plot_size=(20, 10), show=True)
-            # plt.savefig(f'plots/shap{time_step}.png')
+            plt.title(f'Shap. Time step: {time_step}, n samples: {self.window_x.shape[0]}')
+            shap.plots.beeswarm(shap_values, plot_size=(30, 15), show=False)
+            plt.savefig(self.dir_path + f'shap{time_step}.png', bbox_inches='tight')
+            plt.close()
 
     def normalize_min_max(self, x):
         """
@@ -211,19 +242,15 @@ class ONLINE:
         bools[y == 0] = bools_0
         bools[y == 1] = bools_1
 
-        return x[bools == 1]  # , y[bools == 1]
+        return x[bools == 1]
 
-    def draw_top_features_plot(self):
+    def draw_top_features_plot(self, top_features, title, path_name):
         """
         Draws the most selected features over time.
-
-        Args:
-            feature_names (list): the list of feature names
         """
-        selection = self.fires_model.selection if self.fires_model else self.shap_top_features
         fig, ax = plt.subplots(figsize=(20, 12))
         ax.grid(True, axis='y')
-        y = [feature for features in selection for feature in features]
+        y = [feature for features in top_features for feature in features]
         counts = np.bincount(y)
         top_ftr_idx = counts.argsort()[-10:][::-1]
         ax.bar(np.arange(10), counts[top_ftr_idx], width=0.3, zorder=100)
@@ -233,11 +260,11 @@ class ONLINE:
         ax.tick_params(axis='both', labelsize=20 * 0.7, length=0)
         ax.set_xticks(np.arange(10))
         ax.set_xlim(-0.2, 9.2)
-        title = "FIRES top features" if self.fires_model else "SHAP top features"
         plt.title(title, size=20)
-        plt.show()
+        plt.savefig(self.dir_path + path_name, bbox_inches='tight')
+        plt.close()
 
-    def draw_selection_plot(self, ftr_weights, time_step):
+    def draw_selection_plot(self, ftr_weights, title, path_name):
         """
         Draws the selected features.
         """
@@ -245,18 +272,31 @@ class ONLINE:
         ftr_selection_vals = ftr_weights[ftr_selection]
         feature_names = np.array(get_kdd_conceptdrift_feature_names())
 
+        plt.ioff()
+
         fig, ax = plt.subplots(figsize=(20, 12))
         ax.grid(True, axis='y')
-
         ax.bar(np.arange(len(ftr_selection)), ftr_selection_vals)
         ax.set_xticks(np.arange(len(ftr_selection)))
         ax.set_xticklabels(feature_names[ftr_selection], rotation=15)
         ax.set_xlabel('Top Features', size=20, labelpad=1.6)
         ax.set_ylabel('Feature Weights', size=20, labelpad=1.5)
-        plt.title(f'Time step: {time_step}, n samples: {self.window_x.shape[0]}', size=20)
-        plt.show()
+        plt.title(title, size=20)
+        plt.savefig(self.dir_path + path_name, bbox_inches='tight')
+        plt.close()
 
     def detect_concept_drift_x(self):
         if(np.linalg.norm(np.abs(self.current_mean-self.former_mean)/(self.former_mean+1e-10))>self.delta):
             self.update_statistics()
-            
+
+    def draw_accuracy(self):
+        plt.ioff()
+
+        fig, ax = plt.subplots(figsize=(20, 12))
+        ax.grid(True, axis='y')
+        ax.plot(np.arange(len(self.accuracy_scores)), self.accuracy_scores)
+        ax.set_xlabel('Time Step', size=20, labelpad=1.6)
+        ax.set_ylabel('Accuracy', size=20, labelpad=1.5)
+        plt.title(f'Prediction Accuracy', size=20)
+        plt.savefig(self.dir_path + 'prediction_accuracy.png', bbox_inches='tight')
+        plt.close()
