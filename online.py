@@ -32,7 +32,7 @@ class ONLINE:
         self.window_size = 300
         self.batch_size = 256
         self.n_frames_explanations = 30
-
+        self.gamma = 0.3
         self.shap_top_features = []
 
         self.n_frames_initial = 10
@@ -86,8 +86,13 @@ class ONLINE:
                     drift_window_y = self.window_y[ctr_inner:ctr_inner + self.k]
                     drift_window_x_filtered = self.remove_outlier_class_sensitive(drift_window_x, drift_window_y) if self.remove_outliers else drift_window_x
 
+                    former_max= self.current_max
+                    former_min= self.current_min
                     self.current_max = np.max(drift_window_x_filtered, axis=0) if drift_window_x_filtered.shape[0] > 0 else self.current_max
                     self.current_min = np.min(drift_window_x_filtered, axis=0) if drift_window_x_filtered.shape[0] > 0 else self.current_max
+                    #interpolate bw current and previous max/min
+                    current_max= (1-self.gamma)*self.current_max+self.gamma*former_max
+                    current_min= (1-self.gamma)*self.current_min+self.gamma*former_min
                     last_drift_inner = ctr_inner
                     last_drift_outer = ctr_outer
                 ctr_inner += 1
