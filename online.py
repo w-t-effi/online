@@ -134,6 +134,10 @@ class ONLINE:
             ftr_weights = self.predictor.coef_[0]
             ftr_selection = np.argsort(ftr_weights)[::-1][:10]
             self.predictor_top_features.append(ftr_selection)
+            if ctr_outer % self.n_frames_explanations == 0 and ctr_outer != 0:
+                title = f'Prediction weights. Time step: {ctr_outer}, n samples: {self.window_x.shape[0]}'
+                path_name = f'prediction{ctr_outer}.png'
+                self.draw_selection_plot(ftr_weights, title, path_name)
 
             ctr_outer += 1
 
@@ -156,7 +160,9 @@ class ONLINE:
         ftr_selection = np.argsort(ftr_weights)[::-1][:10]
         self.fires_model.selection.append(ftr_selection.tolist())
         if time_step % self.n_frames_explanations == 0 and time_step != 0:
-            self.draw_selection_plot(ftr_weights, time_step)
+            title = f'FIRES weights. Time step: {time_step}, n samples: {self.window_x.shape[0]}'
+            path_name = f'fires{time_step}.png'
+            self.draw_selection_plot(ftr_weights, title, path_name)
         x_reduced = np.zeros(self.window_x.shape)
         x_reduced[:, ftr_selection] = self.window_x[:, ftr_selection]
         return x_reduced
@@ -174,7 +180,7 @@ class ONLINE:
         ftr_selection = np.argsort(ftr_weights)[::-1][:10]
         self.shap_top_features.append(ftr_selection)
         if time_step % self.n_frames_explanations == 0 and time_step != 0:
-            plt.title(f'Time step: {time_step}, n samples: {self.window_x.shape[0]}')
+            plt.title(f'Shap. Time step: {time_step}, n samples: {self.window_x.shape[0]}')
             shap.plots.beeswarm(shap_values, plot_size=(30, 15), show=False)
             plt.savefig(self.dir_path + f'shap{time_step}.png', bbox_inches='tight')
             plt.close()
@@ -239,7 +245,7 @@ class ONLINE:
         plt.savefig(self.dir_path + path_name, bbox_inches='tight')
         plt.close()
 
-    def draw_selection_plot(self, ftr_weights, time_step):
+    def draw_selection_plot(self, ftr_weights, title, path_name):
         """
         Draws the selected features.
         """
@@ -256,8 +262,8 @@ class ONLINE:
         ax.set_xticklabels(feature_names[ftr_selection], rotation=15)
         ax.set_xlabel('Top Features', size=20, labelpad=1.6)
         ax.set_ylabel('Feature Weights', size=20, labelpad=1.5)
-        plt.title(f'Time step: {time_step}, n samples: {self.window_x.shape[0]}', size=20)
-        plt.savefig(self.dir_path + f'fires{time_step}.png', bbox_inches='tight')
+        plt.title(title, size=20)
+        plt.savefig(self.dir_path + path_name, bbox_inches='tight')
         plt.close()
 
     def draw_accuracy(self):
