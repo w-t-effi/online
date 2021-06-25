@@ -1,11 +1,13 @@
+import os
+from datetime import datetime
 import numpy as np
 import shap
 import matplotlib
-
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from skmultiflow.data.base_stream import Stream
 from skmultiflow.drift_detection.base_drift_detector import BaseDriftDetector
+from sklearn.metrics import accuracy_score
 from fires import FIRES
 from utils import get_kdd_conceptdrift_feature_names
 
@@ -37,6 +39,7 @@ class ONLINE:
         self.n_frames_explanations = 30
         self.gamma = 0.3
         self.shap_top_features = []
+        self.accuracy_scores = []
 
         self.n_frames_initial = 10
         self.k = 150
@@ -57,6 +60,13 @@ class ONLINE:
             self.window_x = self.run_fires(0)
 
         self.predictor.fit(self.window_x, self.window_y)
+        time_obj = datetime.now()
+        time_str = f'{time_obj.year}-{time_obj.month}-{time_obj.day}_{time_obj.hour}-{time_obj.minute}-{time_obj.second}'
+
+        self.dir_path = f'plots/{time_str}/'
+        os.makedirs(self.dir_path)
+        with open(self.dir_path + 'params.txt', "w") as file:
+            file.write(f'FIRES: {self.fires_model}\nNormalize: {self.do_normalize}\nRemove outliers: {self.remove_outliers}')
 
     def run(self):
         """
@@ -67,6 +77,7 @@ class ONLINE:
         last_drift_inner = 0
         while self.stream.has_more_samples():
             y_pred = self.predictor.predict(self.window_x)
+            self.accuracy_scores.append(accuracy_score(self.window_y, y_pred))
 
             if not self.fires_model:
                 self.run_shap(ctr_outer)
@@ -122,6 +133,7 @@ class ONLINE:
             ctr_outer += 1
 
         self.draw_top_features_plot()
+        self.draw_accuracy()
         self.stream.restart()
 
     def run_fires(self, time_step):
@@ -155,7 +167,7 @@ class ONLINE:
             shap_values = explainer(self.window_x)
             plt.title(f'Time step: {time_step}, n samples: {self.window_x.shape[0]}')
             shap.plots.beeswarm(shap_values, plot_size=(30, 15), show=False)
-            plt.savefig(f'plots/shap{time_step}.png', bbox_inches='tight')
+            plt.savefig(self.dir_path + f'shap{time_step}.png', bbox_inches='tight')
             plt.close()
 
     def normalize(self, x):
@@ -218,7 +230,7 @@ class ONLINE:
         title = 'FIRES top features' if self.fires_model else 'SHAP top features'
         plt.title(title, size=20)
         path_name = 'fires_top.png' if self.fires_model else 'shap_top.png'
-        plt.savefig(path_name, bbox_inches='tight')
+        plt.savefig(self.dir_path + path_name, bbox_inches='tight')
         plt.close()
 
     def draw_selection_plot(self, ftr_weights, time_step):
@@ -233,12 +245,23 @@ class ONLINE:
 
         fig, ax = plt.subplots(figsize=(20, 12))
         ax.grid(True, axis='y')
-
         ax.bar(np.arange(len(ftr_selection)), ftr_selection_vals)
         ax.set_xticks(np.arange(len(ftr_selection)))
         ax.set_xticklabels(feature_names[ftr_selection], rotation=15)
         ax.set_xlabel('Top Features', size=20, labelpad=1.6)
         ax.set_ylabel('Feature Weights', size=20, labelpad=1.5)
         plt.title(f'Time step: {time_step}, n samples: {self.window_x.shape[0]}', size=20)
-        plt.savefig(f'plots/fires{time_step}.png', bbox_inches='tight')
+        plt.savefig(self.dir_path + f'fires{time_step}.png', bbox_inches='tight')
+        plt.close()
+
+    def draw_accuracy(self):
+        plt.ioff()
+
+        fig, ax = plt.subplots(figsize=(20, 12))
+        ax.grid(True, axis='y')
+        ax.plot(np.arange(len(self.accuracy_scores)), self.accuracy_scores)
+        ax.set_xlabel('Time Step', size=20, labelpad=1.6)
+        ax.set_ylabel('Accuracy', size=20, labelpad=1.5)
+        plt.title(f'Prediction Accuracy', size=20)
+        plt.savefig(self.dir_path + 'prediction_accuracy.png', bbox_inches='tight')
         plt.close()
