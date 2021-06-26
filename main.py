@@ -27,7 +27,7 @@ fires_model = FIRES(n_total_ftr=concept_drift_stream.n_features,  # Total no. of
                     model='probit')  # Name of the base model to compute the likelihood
 
 adwin = ADWIN()
-perceptron = Perceptron()
+perceptron = Perceptron(random_state=42)
 
 online = ONLINE(concept_drift_stream, adwin, perceptron, fires_model=None, do_normalize=True, remove_outliers=True,y_drift_detection=True)
 online.run()
