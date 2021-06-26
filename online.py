@@ -2,9 +2,9 @@ import os
 from datetime import datetime
 import numpy as np
 import shap
+import plotly.graph_objects as go
 import matplotlib
 import random
-
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from skmultiflow.data.base_stream import Stream
@@ -105,8 +105,8 @@ class ONLINE:
                 self.detect_concept_drift_x()
             try:
                 x, y = self.stream.next_sample(self.batch_size)
-                #if ctr_outer%350==0:
-                    #y=random.shuffle(y)
+                # if ctr_outer%350==0:
+                # y=random.shuffle(y)
                 if self.do_normalize:
                     x = self.normalize(x)
             except ValueError:
@@ -134,6 +134,7 @@ class ONLINE:
         self.draw_top_features_plot(selection, title, path_name)
         self.draw_top_features_plot(self.predictor_top_features, 'Predictor top features', 'predictor_top.png')
         self.draw_accuracy()
+        self.draw_sankey_diagram(selection)
         self.stream.restart()
 
     def run_fires(self, time_step):
@@ -291,18 +292,16 @@ class ONLINE:
         plt.close()
 
     def detect_concept_drift_x(self):
-        current_mean = np.mean(self.window_x, axis = 0)
-        #print(np.linalg.norm(np.abs(current_mean-self.current_mean)/(self.current_mean+1e-10)))
-        #a=np.linalg.norm(np.abs(current_mean-self.current_mean)/(self.current_mean+10e-99))
-        #b=np.linalg.norm(self.current_mean/np.abs(current_mean-self.current_mean+10e-99))
-        a=np.linalg.norm(np.abs(current_mean/(self.current_mean+10e-99)))
-        b=np.linalg.norm(np.abs(self.current_mean/(current_mean+10e-99)))
-        diff=np.min((a,b))
-        if (np.linalg.norm(np.abs(current_mean-self.current_mean)/(self.current_mean+1e-10)))>self.delta:
-            #print(np.linalg.norm(np.abs(self.current_mean-self.former_mean)/(self.former_mean+1e-10)))
+        current_mean = np.mean(self.window_x, axis=0)
+        # print(np.linalg.norm(np.abs(current_mean-self.current_mean)/(self.current_mean+1e-10)))
+        # a=np.linalg.norm(np.abs(current_mean-self.current_mean)/(self.current_mean+10e-99))
+        # b=np.linalg.norm(self.current_mean/np.abs(current_mean-self.current_mean+10e-99))
+        a = np.linalg.norm(np.abs(current_mean / (self.current_mean + 10e-99)))
+        b = np.linalg.norm(np.abs(self.current_mean / (current_mean + 10e-99)))
+        diff = np.min((a, b))
+        if (np.linalg.norm(np.abs(current_mean - self.current_mean) / (self.current_mean + 1e-10))) > self.delta:
+            # print(np.linalg.norm(np.abs(self.current_mean-self.former_mean)/(self.former_mean+1e-10)))
             self.update_statistics()
-
-    
 
     def draw_accuracy(self):
         plt.ioff()
@@ -315,3 +314,32 @@ class ONLINE:
         plt.title(f'Prediction Accuracy', size=20)
         plt.savefig(self.dir_path + 'prediction_accuracy.png', bbox_inches='tight')
         plt.close()
+
+    def draw_sankey_diagram(self, top_features_expl):
+        # TODO https://towardsdatascience.com/sankey-diagram-basics-with-pythons-plotly-7a13d557401a
+        y = [feature for features in top_features_expl for feature in features]
+        counts = np.bincount(y)
+        top_ftr_idx_expl = counts.argsort()[-10:][::-1]
+
+        y = [feature for features in self.predictor_top_features for feature in features]
+        counts = np.bincount(y)
+        top_ftr_idx_pred = counts.argsort()[-10:][::-1]
+        labels = list(np.asarray(get_kdd_conceptdrift_feature_names())[top_ftr_idx_expl]) + list(
+            np.asarray(get_kdd_conceptdrift_feature_names())[top_ftr_idx_pred])
+        print(labels)
+        # fig = go.Figure(data=[go.Sankey(
+        #     node=dict(
+        #         pad=15,
+        #         thickness=20,
+        #         line=dict(color="black", width=0.5),
+        #         label=["A1", "A2", "B1", "B2"],
+        #         color="blue"
+        #     ),
+        #     link=dict(
+        #         source=[0, 1, 0, 2, 3, 3],  # indices correspond to labels, eg A1, A2, A1, B1, ...
+        #         target=[2, 3, 3, 4, 4, 5],
+        #         value=[8, 4, 2, 8, 4, 2]
+        #     ))])
+        #
+        # fig.update_layout(title_text="Basic Sankey Diagram", font_size=10)
+        # fig.show()
