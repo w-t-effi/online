@@ -8,7 +8,7 @@ import warnings
 
 warnings.filterwarnings("ignore")
 
-file_name = 'data/spambase.csv'
+file_name = 'data/kdd_conceptdrift.csv'
 #file_name= 'C:\\Users\\Valeria\\Desktop\\Master\\Semester 4\\Explainability in Analytics\\repo\\data\\kdd_conceptdrift.csv'
 
 
@@ -29,5 +29,5 @@ fires_model = FIRES(n_total_ftr=concept_drift_stream.n_features,  # Total no. of
 adwin = ADWIN()
 perceptron = Perceptron()
 
-online = ONLINE(concept_drift_stream, adwin, perceptron, fires_model=None, do_normalize=True, remove_outliers=True,y_drift_detection=False)
+online = ONLINE(concept_drift_stream, adwin, perceptron, fires_model=None, do_normalize=True, remove_outliers=True,y_drift_detection=True)
 online.run()
