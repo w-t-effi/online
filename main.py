@@ -28,9 +28,8 @@ fires_model = FIRES(n_total_ftr=concept_drift_stream.n_features,  # Total no. of
                     scale_weights=True,  # If True, scale feature weights into the range [0,1]
                     model='probit')  # Name of the base model to compute the likelihood
 
-adwin = ADWIN()#delta=0.2)
-hddma = HDDM_A()
-perceptron = Perceptron()
+adwin = ADWIN()
+perceptron = Perceptron(random_state=42)
 
-online = ONLINE(concept_drift_stream, hddma, perceptron, fires_model=None, do_normalize=False, remove_outliers=True,y_drift_detection=False)
+online = ONLINE(concept_drift_stream, adwin, perceptron, fires_model=None, do_normalize=False, remove_outliers=True,y_drift_detection=False)
 online.run()
