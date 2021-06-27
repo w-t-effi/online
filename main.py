@@ -1,5 +1,7 @@
 from skmultiflow.data import ConceptDriftStream, SEAGenerator
 from skmultiflow.drift_detection.adwin import ADWIN
+from skmultiflow.drift_detection import HDDM_A
+from skmultiflow.drift_detection import DDM
 from sklearn.linear_model import Perceptron
 from fires import FIRES
 from online import ONLINE
@@ -8,11 +10,11 @@ import warnings
 
 warnings.filterwarnings("ignore")
 
-file_name = 'data/kdd_conceptdrift.csv'
+file_name = 'data/mixed_0101_abrupto.csv'
 #file_name= 'C:\\Users\\Valeria\\Desktop\\Master\\Semester 4\\Explainability in Analytics\\repo\\data\\kdd_conceptdrift.csv'
 
 
-concept_drift_stream = FileStream(file_name, target_idx=0, n_targets=1)
+concept_drift_stream = FileStream(file_name)#, target_idx=0, n_targets=1)
 
 fires_model = FIRES(n_total_ftr=concept_drift_stream.n_features,  # Total no. of features
                     target_values=concept_drift_stream.target_values,  # Unique target values (class labels)
@@ -26,8 +28,9 @@ fires_model = FIRES(n_total_ftr=concept_drift_stream.n_features,  # Total no. of
                     scale_weights=True,  # If True, scale feature weights into the range [0,1]
                     model='probit')  # Name of the base model to compute the likelihood
 
-adwin = ADWIN()
+adwin = ADWIN()#delta=0.2)
+hddma = HDDM_A()
 perceptron = Perceptron()
 
-online = ONLINE(concept_drift_stream, adwin, perceptron, fires_model=None, do_normalize=True, remove_outliers=True,y_drift_detection=True)
+online = ONLINE(concept_drift_stream, hddma, perceptron, fires_model=None, do_normalize=False, remove_outliers=True,y_drift_detection=False)
 online.run()

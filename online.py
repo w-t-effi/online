@@ -20,7 +20,7 @@ class ONLINE:
     """
 
     def __init__(self, stream, drift_detector, predictor, fires_model=None, do_normalize=False, remove_outliers=False,
-                 delta=300, y_drift_detection=False):
+                 delta=0.25, y_drift_detection=False):
         """
         Initializes the ONLinE evaluation.
 
@@ -42,7 +42,7 @@ class ONLINE:
         self.window_size = 300
         self.batch_size = 256
         self.n_frames_explanations = 30
-        self.gamma = 0.3
+        self.gamma = 0.2
         self.shap_top_features = []
         self.predictor_top_features = []
         self.accuracy_scores = []
@@ -90,27 +90,31 @@ class ONLINE:
 
             if not self.fires_model:
                 self.run_shap(ctr_outer)
-
+            
             ctr_inner = 0
+            try:
+                x, y = self.stream.next_sample(self.batch_size)
+                if(ctr_outer==50):
+                    x[:,2]=x[:,2]*1000
+            except ValueError:
+                break
             if self.y_drift_detection:
                 for i in range(len(self.window_y)):
                     self.drift_detector.add_element(self.window_y[i] == y_pred[i])
 
                     if self.drift_detector.detected_change():
                         print(f'Change detected at index: {ctr_outer}.{ctr_inner}')
-
-                        self.update_statistics(ctr_inner, ctr_outer)
+                        no_drift=False
+                        self.update_statistics(x,y,ctr_inner, ctr_outer)
                     ctr_inner += 1
+               
             else:
-                self.detect_concept_drift_x()
-            try:
-                x, y = self.stream.next_sample(self.batch_size)
-                #if ctr_outer%350==0:
-                    #y=random.shuffle(y)
-                if self.do_normalize:
-                    x = self.normalize(x)
-            except ValueError:
-                break
+                self.detect_concept_drift_x(x,y)
+            
+                
+            if self.do_normalize:
+                x = self.normalize(x)
+
             self.window_x = np.concatenate((self.window_x, x), axis=0)[-self.window_size:]
             self.window_y = np.concatenate((self.window_y, y))[-self.window_size:]
 
@@ -131,8 +135,8 @@ class ONLINE:
         selection = self.fires_model.selection if self.fires_model else self.shap_top_features
         title = 'FIRES top features' if self.fires_model else 'SHAP top features'
         path_name = 'fires_top.png' if self.fires_model else 'shap_top.png'
-        self.draw_top_features_plot(selection, title, path_name)
-        self.draw_top_features_plot(self.predictor_top_features, 'Predictor top features', 'predictor_top.png')
+        #self.draw_top_features_plot(selection, title, path_name)
+        #self.draw_top_features_plot(self.predictor_top_features, 'Predictor top features', 'predictor_top.png')
         self.draw_accuracy()
         self.stream.restart()
 
@@ -184,10 +188,10 @@ class ONLINE:
         """
         return (x - self.current_min) / (self.current_max - self.current_min + 10e-99)
 
-    def update_statistics(self, ctr_inner=None, ctr_outer=None):
+    def update_statistics(self, x,y,ctr_inner=None, ctr_outer=None):
 
-        drift_window_x = self.window_x
-        drift_window_y = self.window_y
+        drift_window_x = x#self.window_x
+        drift_window_y = y#self.window_y
         if self.y_drift_detection:
             if ctr_outer - self.last_drift_outer == 1:
                 self.k = self.window_size - self.last_drift_inner + ctr_inner
@@ -196,8 +200,9 @@ class ONLINE:
             else:
                 self.k = self.window_size
 
-            drift_window_x = self.window_x[ctr_inner:ctr_inner + self.k, :]
-            drift_window_y = self.window_y[ctr_inner:ctr_inner + self.k]
+            drift_window_x = x#self.window_x[ctr_inner:ctr_inner + self.k, :]
+            drift_window_y = y#self.window_y[ctr_inner:ctr_inner + self.k]
+
         drift_window_x_filtered = self.remove_outlier_class_sensitive(drift_window_x, drift_window_y) if self.remove_outliers else drift_window_x
 
         former_mean = self.current_mean
@@ -249,6 +254,13 @@ class ONLINE:
 
         return x[bools == 1]
 
+    def interpolate_statistics(self):
+        window_x_filtered = self.remove_outlier_class_sensitive(self.window_x,self.window_y) if self.remove_outliers else self.window_x
+        mean_new = np.mean(window_x_filtered, axis=0)
+        std_new = np.std(window_x_filtered, axis = 0)
+        self.current_mean=mean_new*0.3+self.current_mean*0.7
+        self.current_std= std_new*0.3+self.current_std*0.7
+
     def draw_top_features_plot(self, top_features, title, path_name):
         """
         Draws the most selected features over time.
@@ -290,20 +302,33 @@ class ONLINE:
         plt.savefig(self.dir_path + path_name, bbox_inches='tight')
         plt.close()
 
-    def detect_concept_drift_x(self):
-        current_mean = np.mean(self.window_x, axis = 0)
-        #print(np.linalg.norm(np.abs(current_mean-self.current_mean)/(self.current_mean+1e-10)))
-        #a=np.linalg.norm(np.abs(current_mean-self.current_mean)/(self.current_mean+10e-99))
-        #b=np.linalg.norm(self.current_mean/np.abs(current_mean-self.current_mean+10e-99))
-        a=np.linalg.norm(np.abs(current_mean/(self.current_mean+10e-99)))
-        b=np.linalg.norm(np.abs(self.current_mean/(current_mean+10e-99)))
-        diff=np.min((a,b))
+    def detect_concept_drift_x(self,x,y):
+        #todo: add outlier removal here
+        current_mean = np.mean(self.remove_outlier_class_sensitive(x,y), axis = 0)
+        print(np.linalg.norm(np.abs(current_mean-self.current_mean)/(self.current_mean+1e-10)))
+        
         if (np.linalg.norm(np.abs(current_mean-self.current_mean)/(self.current_mean+1e-10)))>self.delta:
-            #print(np.linalg.norm(np.abs(self.current_mean-self.former_mean)/(self.former_mean+1e-10)))
-            self.update_statistics()
+            self.update_statistics(x,y)
+            print('drift')
+        #else:
+         #   self.interpolate_statistics()
 
+    def detect_concept_drift_class_sensitive(self,x,y):
+        x_0 = x[y == 0]
+        x_1 = x[y == 1]
+        mean_0 = np.mean(x_0, axis=0)
+        mean_1 = np.mean(x_1, axis=0)
+        
+        update=False
+        if (np.linalg.norm(np.abs(mean_1-self.mean_1)/(self.mean_1+1e-10)))>self.delta:
+            update=True
+        if (np.linalg.norm(np.abs(mean_0-self.mean_0)/(self.mean_0+1e-10)))>self.delta:
+            update=True
+        
+        if update:
+            self.update_statistics(x,y)
+            print('drift')
     
-
     def draw_accuracy(self):
         plt.ioff()
 
