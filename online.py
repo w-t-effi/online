@@ -53,11 +53,12 @@ class ONLINE:
         x, y = self.stream.next_sample(self.batch_size)
 
         x_filtered = self.remove_outlier_class_sensitive(x, y) if self.remove_outliers else x
-        self.current_min = np.min(x_filtered, axis=0)
-        self.current_max = np.max(x_filtered, axis=0)
+        
         self.current_mean = np.mean(x_filtered, axis=0)
         self.current_std = np.std(x_filtered, axis=0)
-        self.former_mean = self.current_mean
+
+        self.mean_0 = np.mean(x_filtered[y==0], axis=0)
+        self.mean_1 = np.mean(x_filtered[y==1], axis=0)
 
         if self.do_normalize:
             x = self.normalize(x)
@@ -94,8 +95,7 @@ class ONLINE:
             ctr_inner = 0
             try:
                 x, y = self.stream.next_sample(self.batch_size)
-                if(ctr_outer==50):
-                    x[:,2]=x[:,2]*1000
+                
             except ValueError:
                 break
             if self.y_drift_detection:
@@ -109,7 +109,8 @@ class ONLINE:
                     ctr_inner += 1
                
             else:
-                self.detect_concept_drift_x(x,y)
+                self.detect_concept_drift_x(x,y, ctr_outer, ctr_inner)
+                ctr_inner+=1
             
                 
             if self.do_normalize:
@@ -177,7 +178,28 @@ class ONLINE:
             plt.savefig(self.dir_path + f'shap{time_step}.png', bbox_inches='tight')
             plt.close()
 
-    def normalize_min_max(self, x):
+    def update_statistics(self, x,y,ctr_inner=None, ctr_outer=None):
+       
+        drift_window_x_filtered = self.remove_outlier_class_sensitive(x, y) if self.remove_outliers else x
+
+        former_mean = self.current_mean
+        former_std = self.current_std
+        former_mean_0 = self.mean_0
+        former_mean_1 = self.mean_1
+        
+        if drift_window_x_filtered.shape[0] > 0:
+            self.current_mean = np.mean(drift_window_x_filtered, axis=0)
+            self.current_std = np.std(drift_window_x_filtered, axis=0)
+            self.mean_0 = np.mean(drift_window_x_filtered[y==0], axis=0)
+            self.mean_1 = np.mean(drift_window_x_filtered[y==1], axis=0)
+
+        # interpolate bw current and previous max/min
+            self.current_mean = (1 - self.gamma) * self.current_mean + self.gamma * former_mean
+            self.current_std = (1 - self.gamma) * self.current_std + self.gamma * former_std
+            self.mean_0 = (1 - self.gamma) * self.mean_0 + self.gamma * former_mean_0
+            self.mean_1 = (1 - self.gamma) * self.mean_1 + self.gamma * former_mean_1
+
+    def normalize(self, x):
         """
         Normalizes the feature vector.
 
@@ -187,44 +209,6 @@ class ONLINE:
         Returns:
             np.ndarray: the normalized feature vector
         """
-        return (x - self.current_min) / (self.current_max - self.current_min + 10e-99)
-
-    def update_statistics(self, x,y,ctr_inner=None, ctr_outer=None):
-
-        drift_window_x = x#self.window_x
-        drift_window_y = y#self.window_y
-        if self.y_drift_detection:
-            if ctr_outer - self.last_drift_outer == 1:
-                self.k = self.window_size - self.last_drift_inner + ctr_inner
-            elif ctr_outer == self.last_drift_outer:
-                self.k = ctr_inner - self.last_drift_inner
-            else:
-                self.k = self.window_size
-
-            drift_window_x = x#self.window_x[ctr_inner:ctr_inner + self.k, :]
-            drift_window_y = y#self.window_y[ctr_inner:ctr_inner + self.k]
-
-        drift_window_x_filtered = self.remove_outlier_class_sensitive(drift_window_x, drift_window_y) if self.remove_outliers else drift_window_x
-
-        former_mean = self.current_mean
-        former_std = self.current_std
-        former_max = self.current_max
-        former_min = self.current_min
-        if drift_window_x_filtered.shape[0] > 0:
-            self.current_max = np.max(drift_window_x_filtered, axis=0)
-            self.current_min = np.min(drift_window_x_filtered, axis=0)
-            self.current_mean = np.mean(drift_window_x_filtered, axis=0)
-            self.current_std = np.std(drift_window_x_filtered, axis=0)
-
-        # interpolate bw current and previous max/min
-        if drift_window_x_filtered.shape[0] < self.window_size / 2:
-            if self.k < self.window_size / 2:
-                self.current_max = (1 - self.gamma) * self.current_max + self.gamma * former_max
-                self.current_min = (1 - self.gamma) * self.current_min + self.gamma * former_min
-                self.current_mean = (1 - self.gamma) * self.current_mean + self.gamma * former_mean
-                self.current_std = (1 - self.gamma) * self.current_std + self.gamma * former_std
-
-    def normalize(self, x):
         return (x - self.current_mean) / (self.current_std + 10e-99)
 
     @staticmethod
@@ -254,13 +238,6 @@ class ONLINE:
         bools[y == 1] = bools_1
 
         return x[bools == 1]
-
-    def interpolate_statistics(self):
-        window_x_filtered = self.remove_outlier_class_sensitive(self.window_x,self.window_y) if self.remove_outliers else self.window_x
-        mean_new = np.mean(window_x_filtered, axis=0)
-        std_new = np.std(window_x_filtered, axis = 0)
-        self.current_mean=mean_new*0.3+self.current_mean*0.7
-        self.current_std= std_new*0.3+self.current_std*0.7
 
     def draw_top_features_plot(self, top_features, title, path_name):
         """
@@ -303,18 +280,41 @@ class ONLINE:
         plt.savefig(self.dir_path + path_name, bbox_inches='tight')
         plt.close()
 
-    def detect_concept_drift_x(self,x,y):
-        #todo: add outlier removal here
-        current_mean = np.mean(self.remove_outlier_class_sensitive(x,y), axis = 0)
-        print(np.linalg.norm(np.abs(current_mean-self.current_mean)/(self.current_mean+1e-10)))
+    def detect_concept_drift_x(self,x,y,ctr_outer,ctr_inner):
+        """
+        Detects concept drift in feature values and updates statistics if necessary.
+
+        Args:
+            x (np.ndarray): the feature vector
+            y (np.ndarray): the target vector
+
+        """
+        
+        if self.remove_outliers:
+            filtered_data = self.remove_outlier_class_sensitive(x,y)
+        current_mean = np.mean(filtered_data, axis = 0)
+        #print(np.linalg.norm(np.abs(current_mean-self.current_mean)/(self.current_mean+1e-10)))
         
         if (np.linalg.norm(np.abs(current_mean-self.current_mean)/(self.current_mean+1e-10)))>self.delta:
             self.update_statistics(x,y)
-            print('drift')
-        #else:
-         #   self.interpolate_statistics()
+            print(f'Change detected at index: {ctr_outer}.{ctr_inner}')
 
-    def detect_concept_drift_class_sensitive(self,x,y):
+    def force_concept_drift(self,x,k=1000, i=0):
+        """
+        Scales feature i of x by k to enforce concept drift
+
+        Args:
+            x (np.ndarray): the feature vector
+            k (int): scaling weight
+            i (int): feature index
+
+        Returns:
+            np.ndarray: the drifted feature vector
+        """
+        x[:,i]=x[:,i]*k
+        return x
+
+    def detect_concept_drift_class_sensitive(self,x,y, ctr_outer, ctr_inner):
         x_0 = x[y == 0]
         x_1 = x[y == 1]
         mean_0 = np.mean(x_0, axis=0)
@@ -328,7 +328,7 @@ class ONLINE:
         
         if update:
             self.update_statistics(x,y)
-            print('drift')
+            print(f'Change detected at index: {ctr_outer}.{ctr_inner}')
     
     def draw_accuracy(self):
         plt.ioff()
