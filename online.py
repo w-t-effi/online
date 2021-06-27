@@ -47,18 +47,17 @@ class ONLINE:
         self.predictor_top_features = []
         self.accuracy_scores = []
 
-        self.n_frames_initial = 10
         self.k = self.window_size / 2
         self.delta = delta
         x, y = self.stream.next_sample(self.batch_size)
 
         x_filtered = self.remove_outlier_class_sensitive(x, y) if self.remove_outliers else x
-        
+
         self.current_mean = np.mean(x_filtered, axis=0)
         self.current_std = np.std(x_filtered, axis=0)
 
-        self.mean_0 = np.mean(x_filtered[y==0], axis=0)
-        self.mean_1 = np.mean(x_filtered[y==1], axis=0)
+        self.mean_0 = np.mean(x_filtered[y == 0], axis=0)
+        self.mean_1 = np.mean(x_filtered[y == 1], axis=0)
 
         if self.do_normalize:
             x = self.normalize(x)
@@ -91,11 +90,11 @@ class ONLINE:
 
             if not self.fires_model:
                 self.run_shap(ctr_outer)
-            
+
             ctr_inner = 0
             try:
                 x, y = self.stream.next_sample(self.batch_size)
-                
+
             except ValueError:
                 break
             if self.y_drift_detection:
@@ -104,15 +103,13 @@ class ONLINE:
 
                     if self.drift_detector.detected_change():
                         print(f'Change detected at index: {ctr_outer}.{ctr_inner}')
-                        no_drift=False
-                        self.update_statistics(x,y,ctr_inner, ctr_outer)
+                        self.update_statistics(x, y)
                     ctr_inner += 1
-               
+
             else:
-                self.detect_concept_drift_x(x,y, ctr_outer, ctr_inner)
-                ctr_inner+=1
-            
-                
+                self.detect_concept_drift_x(x, y, ctr_outer, ctr_inner)
+                ctr_inner += 1
+
             if self.do_normalize:
                 x = self.normalize(x)
 
@@ -136,10 +133,9 @@ class ONLINE:
         selection = self.fires_model.selection if self.fires_model else self.shap_top_features
         title = 'FIRES top features' if self.fires_model else 'SHAP top features'
         path_name = 'fires_top.png' if self.fires_model else 'shap_top.png'
-        #self.draw_top_features_plot(selection, title, path_name)
-        #self.draw_top_features_plot(self.predictor_top_features, 'Predictor top features', 'predictor_top.png')
+        # self.draw_top_features_plot(selection, title, path_name)
+        # self.draw_top_features_plot(self.predictor_top_features, 'Predictor top features', 'predictor_top.png')
         self.draw_accuracy()
-        self.draw_sankey_diagram(selection)
         self.stream.restart()
 
     def run_fires(self, time_step):
@@ -178,22 +174,22 @@ class ONLINE:
             plt.savefig(self.dir_path + f'shap{time_step}.png', bbox_inches='tight')
             plt.close()
 
-    def update_statistics(self, x,y,ctr_inner=None, ctr_outer=None):
-       
+    def update_statistics(self, x, y):
+
         drift_window_x_filtered = self.remove_outlier_class_sensitive(x, y) if self.remove_outliers else x
 
         former_mean = self.current_mean
         former_std = self.current_std
         former_mean_0 = self.mean_0
         former_mean_1 = self.mean_1
-        
+
         if drift_window_x_filtered.shape[0] > 0:
             self.current_mean = np.mean(drift_window_x_filtered, axis=0)
             self.current_std = np.std(drift_window_x_filtered, axis=0)
-            self.mean_0 = np.mean(drift_window_x_filtered[y==0], axis=0)
-            self.mean_1 = np.mean(drift_window_x_filtered[y==1], axis=0)
+            self.mean_0 = np.mean(drift_window_x_filtered[y == 0], axis=0)
+            self.mean_1 = np.mean(drift_window_x_filtered[y == 1], axis=0)
 
-        # interpolate bw current and previous max/min
+            # interpolate bw current and previous max/min
             self.current_mean = (1 - self.gamma) * self.current_mean + self.gamma * former_mean
             self.current_std = (1 - self.gamma) * self.current_std + self.gamma * former_std
             self.mean_0 = (1 - self.gamma) * self.mean_0 + self.gamma * former_mean_0
@@ -280,26 +276,26 @@ class ONLINE:
         plt.savefig(self.dir_path + path_name, bbox_inches='tight')
         plt.close()
 
-    def detect_concept_drift_x(self,x,y,ctr_outer,ctr_inner):
+    def detect_concept_drift_x(self, x, y, ctr_outer, ctr_inner):
         """
         Detects concept drift in feature values and updates statistics if necessary.
 
         Args:
             x (np.ndarray): the feature vector
             y (np.ndarray): the target vector
-
+            ctr_outer (int): frame count
+            ctr_inner (int): sample in batch count
         """
-        
-        if self.remove_outliers:
-            filtered_data = self.remove_outlier_class_sensitive(x,y)
-        current_mean = np.mean(filtered_data, axis = 0)
-        #print(np.linalg.norm(np.abs(current_mean-self.current_mean)/(self.current_mean+1e-10)))
-        
-        if (np.linalg.norm(np.abs(current_mean-self.current_mean)/(self.current_mean+1e-10)))>self.delta:
-            self.update_statistics(x,y)
+
+        filtered_data = self.remove_outlier_class_sensitive(x, y) if self.remove_outliers else x
+        current_mean = np.mean(filtered_data, axis=0)
+        # print(np.linalg.norm(np.abs(current_mean-self.current_mean)/(self.current_mean+1e-10)))
+
+        if (np.linalg.norm(np.abs(current_mean - self.current_mean) / (self.current_mean + 1e-10))) > self.delta:
+            self.update_statistics(x, y)
             print(f'Change detected at index: {ctr_outer}.{ctr_inner}')
 
-    def force_concept_drift(self,x,k=1000, i=0):
+    def force_concept_drift(self, x, k=1000, i=0):
         """
         Scales feature i of x by k to enforce concept drift
 
@@ -311,25 +307,25 @@ class ONLINE:
         Returns:
             np.ndarray: the drifted feature vector
         """
-        x[:,i]=x[:,i]*k
+        x[:, i] = x[:, i] * k
         return x
 
-    def detect_concept_drift_class_sensitive(self,x,y, ctr_outer, ctr_inner):
+    def detect_concept_drift_class_sensitive(self, x, y, ctr_outer, ctr_inner):
         x_0 = x[y == 0]
         x_1 = x[y == 1]
         mean_0 = np.mean(x_0, axis=0)
         mean_1 = np.mean(x_1, axis=0)
-        
-        update=False
-        if (np.linalg.norm(np.abs(mean_1-self.mean_1)/(self.mean_1+1e-10)))>self.delta:
-            update=True
-        if (np.linalg.norm(np.abs(mean_0-self.mean_0)/(self.mean_0+1e-10)))>self.delta:
-            update=True
-        
+
+        update = False
+        if (np.linalg.norm(np.abs(mean_1 - self.mean_1) / (self.mean_1 + 1e-10))) > self.delta:
+            update = True
+        if (np.linalg.norm(np.abs(mean_0 - self.mean_0) / (self.mean_0 + 1e-10))) > self.delta:
+            update = True
+
         if update:
-            self.update_statistics(x,y)
+            self.update_statistics(x, y)
             print(f'Change detected at index: {ctr_outer}.{ctr_inner}')
-    
+
     def draw_accuracy(self):
         plt.ioff()
 
