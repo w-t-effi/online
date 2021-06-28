@@ -9,7 +9,7 @@ from skmultiflow.data.base_stream import Stream
 from skmultiflow.drift_detection.base_drift_detector import BaseDriftDetector
 from sklearn.metrics import accuracy_score
 from fires import FIRES
-from utils import get_kdd_conceptdrift_feature_names
+from utils import get_spambase_feature_names
 
 
 class ONLINE:
@@ -18,7 +18,7 @@ class ONLINE:
     """
 
     def __init__(self, stream, drift_detector, predictor, fires_model=None, do_normalize=False, remove_outliers=False,
-                 delta=0.25, y_drift_detection=False):
+                 delta=0.25, y_drift_detection=False, gamma=0):
         """
         Initializes the ONLinE evaluation.
 
@@ -39,14 +39,14 @@ class ONLINE:
         self.remove_outliers = remove_outliers
         self.window_size = 300
         self.batch_size = 256
-        self.n_frames_explanations = 30
-        self.gamma = 0.2
+        self.n_frames_explanations = 1
+        self.gamma = gamma
         self.n_selected_features = 10 if self.stream.filename == 'kdd_conceptdrift' or self.stream.filename == 'spambase' else 4
         self.shap_top_features = []
         self.predictor_top_features = []
         self.accuracy_scores = []
 
-        self.feature_names = np.array(get_kdd_conceptdrift_feature_names()) if self.stream.filename == 'kdd_conceptdrift' else np.array(self.stream.feature_names)
+        self.feature_names = np.array(get_spambase_feature_names()) if self.stream.filename == 'kdd_conceptdrift' else np.array(self.stream.feature_names)
         print(self.feature_names)
 
         self.k = self.window_size / 2
@@ -168,7 +168,7 @@ class ONLINE:
         Args:
             time_step (int): the current time step of the evaluation
         """
-        explainer = shap.Explainer(self.predictor, self.window_x, feature_names=get_kdd_conceptdrift_feature_names())
+        explainer = shap.Explainer(self.predictor, self.window_x, feature_names=get_spambase_feature_names())
         shap_values = explainer(self.window_x)
         ftr_weights = np.abs(shap_values.values).mean(axis=0)
         ftr_selection = np.argsort(ftr_weights)[::-1][:self.n_selected_features]
@@ -341,3 +341,6 @@ class ONLINE:
         plt.title(f'Prediction Accuracy', size=20)
         plt.savefig(self.dir_path + 'prediction_accuracy.png', bbox_inches='tight')
         plt.close()
+        import pandas as pd
+        df=pd.DataFrame({'Accuracy_scores':self.accuracy_scores})
+        df.to_csv(self.dir_path + 'accuracy.csv', index=False)
