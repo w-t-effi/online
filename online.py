@@ -51,6 +51,7 @@ class ONLINE:
             get_spambase_feature_names()) if self.stream.filename == 'kdd_conceptdrift' else np.array(
             self.stream.feature_names)
 
+
         self.k = self.window_size / 2
         self.delta = delta
         x, y = self.stream.next_sample(self.batch_size)
@@ -171,7 +172,7 @@ class ONLINE:
         Args:
             time_step (int): the current time step of the evaluation
         """
-        explainer = shap.Explainer(self.predictor, self.window_x, feature_names=get_spambase_feature_names())
+        explainer = shap.Explainer(self.predictor, self.window_x, feature_names=self.feature_names)
         shap_values = explainer(self.window_x)
         ftr_weights = np.abs(shap_values.values).mean(axis=0)
         ftr_selection = np.argsort(ftr_weights)[::-1][:self.n_selected_features]
@@ -295,7 +296,7 @@ class ONLINE:
 
         filtered_data = self.remove_outlier_class_sensitive(x, y) if self.remove_outliers else x
         current_mean = np.mean(filtered_data, axis=0)
-        print(np.linalg.norm(np.abs(current_mean - self.current_mean) / (self.current_mean + 1e-10)))
+        # print(np.linalg.norm(np.abs(current_mean - self.current_mean) / (self.current_mean + 1e-10)))
 
         if (np.linalg.norm(np.abs(current_mean - self.current_mean) / (self.current_mean + 1e-10))) > self.delta:
             self.update_statistics(x, y)
