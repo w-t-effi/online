@@ -2,9 +2,7 @@ import os
 from datetime import datetime
 import numpy as np
 import shap
-import plotly.graph_objects as go
 import matplotlib
-import random
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from skmultiflow.data.base_stream import Stream
@@ -43,6 +41,7 @@ class ONLINE:
         self.batch_size = 256
         self.n_frames_explanations = 30
         self.gamma = 0.2
+        self.n_selected_features = 4
         self.shap_top_features = []
         self.predictor_top_features = []
         self.accuracy_scores = []
@@ -75,7 +74,7 @@ class ONLINE:
         os.makedirs(self.dir_path)
         with open(self.dir_path + 'params.txt', "w") as file:
             file.write(
-                f'FIRES: {self.fires_model}\nNormalize: {self.do_normalize}\nRemove outliers: {self.remove_outliers}')
+                f'FIRES: {self.fires_model}\nNormalize: {self.do_normalize}\nRemove outliers: {self.remove_outliers}\nData: {stream.filepath}')
 
     def run(self):
         """
@@ -94,6 +93,8 @@ class ONLINE:
             ctr_inner = 0
             try:
                 x, y = self.stream.next_sample(self.batch_size)
+                if ctr_outer == 50 or ctr_outer == 51:
+                    x = self.force_concept_drift(x, k=1000, i=2)
 
             except ValueError:
                 break
@@ -121,7 +122,7 @@ class ONLINE:
 
             self.predictor.partial_fit(self.window_x, self.window_y)
             ftr_weights = self.predictor.coef_[0]
-            ftr_selection = np.argsort(ftr_weights)[::-1][:10]
+            ftr_selection = np.argsort(ftr_weights)[::-1][:self.n_selected_features]
             self.predictor_top_features.append(ftr_selection)
             if ctr_outer % self.n_frames_explanations == 0 and ctr_outer != 0:
                 title = f'Prediction weights. Time step: {ctr_outer}, n samples: {self.window_x.shape[0]}'
@@ -133,8 +134,8 @@ class ONLINE:
         selection = self.fires_model.selection if self.fires_model else self.shap_top_features
         title = 'FIRES top features' if self.fires_model else 'SHAP top features'
         path_name = 'fires_top.png' if self.fires_model else 'shap_top.png'
-        # self.draw_top_features_plot(selection, title, path_name)
-        # self.draw_top_features_plot(self.predictor_top_features, 'Predictor top features', 'predictor_top.png')
+        self.draw_top_features_plot(selection, title, path_name)
+        self.draw_top_features_plot(self.predictor_top_features, 'Predictor top features', 'predictor_top.png')
         self.draw_accuracy()
         self.stream.restart()
 
@@ -146,7 +147,7 @@ class ONLINE:
             np.ndarray: the data slice with the selected features
         """
         ftr_weights = self.fires_model.weigh_features(self.window_x, self.window_y)
-        ftr_selection = np.argsort(ftr_weights)[::-1][:10]
+        ftr_selection = np.argsort(ftr_weights)[::-1][:self.n_selected_features]
         self.fires_model.selection.append(ftr_selection.tolist())
         if time_step % self.n_frames_explanations == 0 and time_step != 0:
             title = f'FIRES weights. Time step: {time_step}, n samples: {self.window_x.shape[0]}'
@@ -166,7 +167,7 @@ class ONLINE:
         explainer = shap.Explainer(self.predictor, self.window_x, feature_names=get_kdd_conceptdrift_feature_names())
         shap_values = explainer(self.window_x)
         ftr_weights = np.abs(shap_values.values).mean(axis=0)
-        ftr_selection = np.argsort(ftr_weights)[::-1][:10]
+        ftr_selection = np.argsort(ftr_weights)[::-1][:self.n_selected_features]
         self.shap_top_features.append(ftr_selection)
         if time_step % self.n_frames_explanations == 0 and time_step != 0:
             plt.title(f'Shap. Time step: {time_step}, n samples: {self.window_x.shape[0]}')
@@ -243,14 +244,13 @@ class ONLINE:
         ax.grid(True, axis='y')
         y = [feature for features in top_features for feature in features]
         counts = np.bincount(y)
-        top_ftr_idx = counts.argsort()[-10:][::-1]
-        ax.bar(np.arange(10), counts[top_ftr_idx], width=0.3, zorder=100)
+        top_ftr_idx = counts.argsort()[-self.n_selected_features:][::-1]
+        ax.bar(np.arange(self.n_selected_features), counts[top_ftr_idx], width=0.3, zorder=100)
         ax.set_xticklabels(np.asarray(get_kdd_conceptdrift_feature_names())[top_ftr_idx], rotation=15, ha='right')
         ax.set_ylabel('Times Selected', size=20, labelpad=1.5)
-        ax.set_xlabel('Top 10 Features', size=20, labelpad=1.6)
+        ax.set_xlabel(f'Top {self.n_selected_features} Features', size=20, labelpad=1.6)
         ax.tick_params(axis='both', labelsize=20 * 0.7, length=0)
-        ax.set_xticks(np.arange(10))
-        ax.set_xlim(-0.2, 9.2)
+        ax.set_xticks(np.arange(self.n_selected_features))
         plt.title(title, size=20)
         plt.savefig(self.dir_path + path_name, bbox_inches='tight')
         plt.close()
@@ -259,7 +259,7 @@ class ONLINE:
         """
         Draws the selected features.
         """
-        ftr_selection = np.argsort(ftr_weights)[::-1][:10]
+        ftr_selection = np.argsort(ftr_weights)[::-1][:self.n_selected_features]
         ftr_selection_vals = ftr_weights[ftr_selection]
         feature_names = np.array(get_kdd_conceptdrift_feature_names())
 
@@ -289,13 +289,14 @@ class ONLINE:
 
         filtered_data = self.remove_outlier_class_sensitive(x, y) if self.remove_outliers else x
         current_mean = np.mean(filtered_data, axis=0)
-        # print(np.linalg.norm(np.abs(current_mean-self.current_mean)/(self.current_mean+1e-10)))
+        print(np.linalg.norm(np.abs(current_mean-self.current_mean)/(self.current_mean+1e-10)))
 
         if (np.linalg.norm(np.abs(current_mean - self.current_mean) / (self.current_mean + 1e-10))) > self.delta:
             self.update_statistics(x, y)
             print(f'Change detected at index: {ctr_outer}.{ctr_inner}')
 
-    def force_concept_drift(self, x, k=1000, i=0):
+    @staticmethod
+    def force_concept_drift(x, k=1000, i=0):
         """
         Scales feature i of x by k to enforce concept drift
 
@@ -337,32 +338,3 @@ class ONLINE:
         plt.title(f'Prediction Accuracy', size=20)
         plt.savefig(self.dir_path + 'prediction_accuracy.png', bbox_inches='tight')
         plt.close()
-
-    def draw_sankey_diagram(self, top_features_expl):
-        # TODO https://towardsdatascience.com/sankey-diagram-basics-with-pythons-plotly-7a13d557401a
-        y = [feature for features in top_features_expl for feature in features]
-        counts = np.bincount(y)
-        top_ftr_idx_expl = counts.argsort()[-10:][::-1]
-
-        y = [feature for features in self.predictor_top_features for feature in features]
-        counts = np.bincount(y)
-        top_ftr_idx_pred = counts.argsort()[-10:][::-1]
-        labels = list(np.asarray(get_kdd_conceptdrift_feature_names())[top_ftr_idx_expl]) + list(
-            np.asarray(get_kdd_conceptdrift_feature_names())[top_ftr_idx_pred])
-        print(labels)
-        # fig = go.Figure(data=[go.Sankey(
-        #     node=dict(
-        #         pad=15,
-        #         thickness=20,
-        #         line=dict(color="black", width=0.5),
-        #         label=["A1", "A2", "B1", "B2"],
-        #         color="blue"
-        #     ),
-        #     link=dict(
-        #         source=[0, 1, 0, 2, 3, 3],  # indices correspond to labels, eg A1, A2, A1, B1, ...
-        #         target=[2, 3, 3, 4, 4, 5],
-        #         value=[8, 4, 2, 8, 4, 2]
-        #     ))])
-        #
-        # fig.update_layout(title_text="Basic Sankey Diagram", font_size=10)
-        # fig.show()
