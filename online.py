@@ -41,10 +41,13 @@ class ONLINE:
         self.batch_size = 256
         self.n_frames_explanations = 30
         self.gamma = 0.2
-        self.n_selected_features = 4
+        self.n_selected_features = 10 if self.stream.filename == 'kdd_conceptdrift' or self.stream.filename == 'spambase' else 4
         self.shap_top_features = []
         self.predictor_top_features = []
         self.accuracy_scores = []
+
+        self.feature_names = np.array(get_kdd_conceptdrift_feature_names()) if self.stream.filename == 'kdd_conceptdrift' else np.array(self.stream.feature_names)
+        print(self.feature_names)
 
         self.k = self.window_size / 2
         self.delta = delta
@@ -55,8 +58,8 @@ class ONLINE:
         self.current_mean = np.mean(x_filtered, axis=0)
         self.current_std = np.std(x_filtered, axis=0)
 
-        self.mean_0 = np.mean(x_filtered[y == 0], axis=0)
-        self.mean_1 = np.mean(x_filtered[y == 1], axis=0)
+        # self.mean_0 = np.mean(x_filtered[y == 0], axis=0)
+        # self.mean_1 = np.mean(x_filtered[y == 1], axis=0)
 
         if self.do_normalize:
             x = self.normalize(x)
@@ -74,7 +77,7 @@ class ONLINE:
         os.makedirs(self.dir_path)
         with open(self.dir_path + 'params.txt', "w") as file:
             file.write(
-                f'FIRES: {self.fires_model}\nNormalize: {self.do_normalize}\nRemove outliers: {self.remove_outliers}\nData: {stream.filepath}')
+                f'FIRES: {self.fires_model}\nNormalize: {self.do_normalize}\nRemove outliers: {self.remove_outliers}\nData: {stream.filename}')
 
     def run(self):
         """
@@ -127,15 +130,16 @@ class ONLINE:
             if ctr_outer % self.n_frames_explanations == 0 and ctr_outer != 0:
                 title = f'Prediction weights. Time step: {ctr_outer}, n samples: {self.window_x.shape[0]}'
                 path_name = f'prediction{ctr_outer}.png'
-                self.draw_selection_plot(ftr_weights, title, path_name)
+                self.draw_selection_plot(ftr_weights, title, path_name, self.feature_names)
 
             ctr_outer += 1
 
         selection = self.fires_model.selection if self.fires_model else self.shap_top_features
         title = 'FIRES top features' if self.fires_model else 'SHAP top features'
         path_name = 'fires_top.png' if self.fires_model else 'shap_top.png'
-        self.draw_top_features_plot(selection, title, path_name)
-        self.draw_top_features_plot(self.predictor_top_features, 'Predictor top features', 'predictor_top.png')
+
+        self.draw_top_features_plot(selection, title, path_name, self.feature_names)
+        self.draw_top_features_plot(self.predictor_top_features, 'Predictor top features', 'predictor_top.png', self.feature_names)
         self.draw_accuracy()
         self.stream.restart()
 
@@ -152,7 +156,7 @@ class ONLINE:
         if time_step % self.n_frames_explanations == 0 and time_step != 0:
             title = f'FIRES weights. Time step: {time_step}, n samples: {self.window_x.shape[0]}'
             path_name = f'fires{time_step}.png'
-            self.draw_selection_plot(ftr_weights, title, path_name)
+            self.draw_selection_plot(ftr_weights, title, path_name, feature_names=self.feature_names)
         x_reduced = np.zeros(self.window_x.shape)
         x_reduced[:, ftr_selection] = self.window_x[:, ftr_selection]
         return x_reduced
@@ -181,20 +185,20 @@ class ONLINE:
 
         former_mean = self.current_mean
         former_std = self.current_std
-        former_mean_0 = self.mean_0
-        former_mean_1 = self.mean_1
+        # former_mean_0 = self.mean_0
+        # former_mean_1 = self.mean_1
 
         if drift_window_x_filtered.shape[0] > 0:
             self.current_mean = np.mean(drift_window_x_filtered, axis=0)
             self.current_std = np.std(drift_window_x_filtered, axis=0)
-            self.mean_0 = np.mean(drift_window_x_filtered[y == 0], axis=0)
-            self.mean_1 = np.mean(drift_window_x_filtered[y == 1], axis=0)
+            # self.mean_0 = np.mean(drift_window_x_filtered[y == 0], axis=0)
+            # self.mean_1 = np.mean(drift_window_x_filtered[y == 1], axis=0)
 
             # interpolate bw current and previous max/min
             self.current_mean = (1 - self.gamma) * self.current_mean + self.gamma * former_mean
             self.current_std = (1 - self.gamma) * self.current_std + self.gamma * former_std
-            self.mean_0 = (1 - self.gamma) * self.mean_0 + self.gamma * former_mean_0
-            self.mean_1 = (1 - self.gamma) * self.mean_1 + self.gamma * former_mean_1
+            # self.mean_0 = (1 - self.gamma) * self.mean_0 + self.gamma * former_mean_0
+            # self.mean_1 = (1 - self.gamma) * self.mean_1 + self.gamma * former_mean_1
 
     def normalize(self, x):
         """
@@ -236,7 +240,7 @@ class ONLINE:
 
         return x[bools == 1]
 
-    def draw_top_features_plot(self, top_features, title, path_name):
+    def draw_top_features_plot(self, top_features, title, path_name, feature_names):
         """
         Draws the most selected features over time.
         """
@@ -246,7 +250,7 @@ class ONLINE:
         counts = np.bincount(y)
         top_ftr_idx = counts.argsort()[-self.n_selected_features:][::-1]
         ax.bar(np.arange(self.n_selected_features), counts[top_ftr_idx], width=0.3, zorder=100)
-        ax.set_xticklabels(np.asarray(get_kdd_conceptdrift_feature_names())[top_ftr_idx], rotation=15, ha='right')
+        ax.set_xticklabels(feature_names[top_ftr_idx], rotation=15, ha='right')
         ax.set_ylabel('Times Selected', size=20, labelpad=1.5)
         ax.set_xlabel(f'Top {self.n_selected_features} Features', size=20, labelpad=1.6)
         ax.tick_params(axis='both', labelsize=20 * 0.7, length=0)
@@ -255,13 +259,12 @@ class ONLINE:
         plt.savefig(self.dir_path + path_name, bbox_inches='tight')
         plt.close()
 
-    def draw_selection_plot(self, ftr_weights, title, path_name):
+    def draw_selection_plot(self, ftr_weights, title, path_name, feature_names):
         """
         Draws the selected features.
         """
         ftr_selection = np.argsort(ftr_weights)[::-1][:self.n_selected_features]
         ftr_selection_vals = ftr_weights[ftr_selection]
-        feature_names = np.array(get_kdd_conceptdrift_feature_names())
 
         plt.ioff()
 
@@ -311,21 +314,21 @@ class ONLINE:
         x[:, i] = x[:, i] * k
         return x
 
-    def detect_concept_drift_class_sensitive(self, x, y, ctr_outer, ctr_inner):
-        x_0 = x[y == 0]
-        x_1 = x[y == 1]
-        mean_0 = np.mean(x_0, axis=0)
-        mean_1 = np.mean(x_1, axis=0)
-
-        update = False
-        if (np.linalg.norm(np.abs(mean_1 - self.mean_1) / (self.mean_1 + 1e-10))) > self.delta:
-            update = True
-        if (np.linalg.norm(np.abs(mean_0 - self.mean_0) / (self.mean_0 + 1e-10))) > self.delta:
-            update = True
-
-        if update:
-            self.update_statistics(x, y)
-            print(f'Change detected at index: {ctr_outer}.{ctr_inner}')
+    # def detect_concept_drift_class_sensitive(self, x, y, ctr_outer, ctr_inner):
+    #     x_0 = x[y == 0]
+    #     x_1 = x[y == 1]
+    #     mean_0 = np.mean(x_0, axis=0)
+    #     mean_1 = np.mean(x_1, axis=0)
+    #
+    #     update = False
+    #     if (np.linalg.norm(np.abs(mean_1 - self.mean_1) / (self.mean_1 + 1e-10))) > self.delta:
+    #         update = True
+    #     if (np.linalg.norm(np.abs(mean_0 - self.mean_0) / (self.mean_0 + 1e-10))) > self.delta:
+    #         update = True
+    #
+    #     if update:
+    #         self.update_statistics(x, y)
+    #         print(f'Change detected at index: {ctr_outer}.{ctr_inner}')
 
     def draw_accuracy(self):
         plt.ioff()
