@@ -3,9 +3,10 @@ from datetime import datetime
 import numpy as np
 import shap
 import matplotlib
+
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-from skmultiflow.data.base_stream import Stream
+from skmultiflow.data.file_stream import FileStream
 from skmultiflow.drift_detection.base_drift_detector import BaseDriftDetector
 from sklearn.metrics import accuracy_score
 from fires import FIRES
@@ -23,7 +24,7 @@ class ONLINE:
         Initializes the ONLinE evaluation.
 
         Args:
-            stream (Stream): the data stream
+            stream (FileStream): the data stream
             drift_detector (BaseDriftDetector): the drift detector
             predictor: the predictor
             fires_model (FIRES): the FIRES model (None if SHAP should be used)
@@ -39,15 +40,16 @@ class ONLINE:
         self.remove_outliers = remove_outliers
         self.window_size = 300
         self.batch_size = 256
-        self.n_frames_explanations = 1
+        self.n_frames_explanations = 30
         self.gamma = gamma
         self.n_selected_features = 10 if self.stream.filename == 'kdd_conceptdrift' or self.stream.filename == 'spambase' else 4
         self.shap_top_features = []
         self.predictor_top_features = []
         self.accuracy_scores = []
 
-        self.feature_names = np.array(get_spambase_feature_names()) if self.stream.filename == 'kdd_conceptdrift' else np.array(self.stream.feature_names)
-        print(self.feature_names)
+        self.feature_names = np.array(
+            get_spambase_feature_names()) if self.stream.filename == 'kdd_conceptdrift' else np.array(
+            self.stream.feature_names)
 
         self.k = self.window_size / 2
         self.delta = delta
@@ -139,7 +141,8 @@ class ONLINE:
         path_name = 'fires_top.png' if self.fires_model else 'shap_top.png'
 
         self.draw_top_features_plot(selection, title, path_name, self.feature_names)
-        self.draw_top_features_plot(self.predictor_top_features, 'Predictor top features', 'predictor_top.png', self.feature_names)
+        self.draw_top_features_plot(self.predictor_top_features, 'Predictor top features', 'predictor_top.png',
+                                    self.feature_names)
         self.draw_accuracy()
         self.stream.restart()
 
@@ -292,7 +295,7 @@ class ONLINE:
 
         filtered_data = self.remove_outlier_class_sensitive(x, y) if self.remove_outliers else x
         current_mean = np.mean(filtered_data, axis=0)
-        print(np.linalg.norm(np.abs(current_mean-self.current_mean)/(self.current_mean+1e-10)))
+        print(np.linalg.norm(np.abs(current_mean - self.current_mean) / (self.current_mean + 1e-10)))
 
         if (np.linalg.norm(np.abs(current_mean - self.current_mean) / (self.current_mean + 1e-10))) > self.delta:
             self.update_statistics(x, y)
@@ -342,5 +345,5 @@ class ONLINE:
         plt.savefig(self.dir_path + 'prediction_accuracy.png', bbox_inches='tight')
         plt.close()
         import pandas as pd
-        df=pd.DataFrame({'Accuracy_scores':self.accuracy_scores})
+        df = pd.DataFrame({'Accuracy_scores': self.accuracy_scores})
         df.to_csv(self.dir_path + 'accuracy.csv', index=False)
