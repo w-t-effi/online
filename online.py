@@ -51,8 +51,6 @@ class ONLINE:
             get_kdd_conceptdrift_feature_names()) if self.stream.filename == 'kdd_conceptdrift' else np.array(
             self.stream.feature_names)
 
-
-        self.k = self.window_size / 2
         self.delta = delta
         x, y = self.stream.next_sample(self.batch_size)
 
@@ -60,9 +58,6 @@ class ONLINE:
 
         self.current_mean = np.mean(x_filtered, axis=0)
         self.current_std = np.std(x_filtered, axis=0)
-
-        # self.mean_0 = np.mean(x_filtered[y == 0], axis=0)
-        # self.mean_1 = np.mean(x_filtered[y == 1], axis=0)
 
         if self.do_normalize:
             x = self.normalize(x)
@@ -184,25 +179,18 @@ class ONLINE:
             plt.close()
 
     def update_statistics(self, x, y):
-
         drift_window_x_filtered = self.remove_outlier_class_sensitive(x, y) if self.remove_outliers else x
 
         former_mean = self.current_mean
         former_std = self.current_std
-        # former_mean_0 = self.mean_0
-        # former_mean_1 = self.mean_1
 
         if drift_window_x_filtered.shape[0] > 0:
             self.current_mean = np.mean(drift_window_x_filtered, axis=0)
             self.current_std = np.std(drift_window_x_filtered, axis=0)
-            # self.mean_0 = np.mean(drift_window_x_filtered[y == 0], axis=0)
-            # self.mean_1 = np.mean(drift_window_x_filtered[y == 1], axis=0)
 
             # interpolate bw current and previous max/min
             self.current_mean = (1 - self.gamma) * self.current_mean + self.gamma * former_mean
             self.current_std = (1 - self.gamma) * self.current_std + self.gamma * former_std
-            # self.mean_0 = (1 - self.gamma) * self.mean_0 + self.gamma * former_mean_0
-            # self.mean_1 = (1 - self.gamma) * self.mean_1 + self.gamma * former_mean_1
 
     def normalize(self, x):
         """
@@ -244,6 +232,40 @@ class ONLINE:
 
         return x[bools == 1]
 
+    def detect_concept_drift_x(self, x, y, ctr_outer, ctr_inner):
+        """
+        Detects concept drift in feature values and updates statistics if necessary.
+
+        Args:
+            x (np.ndarray): the feature vector
+            y (np.ndarray): the target vector
+            ctr_outer (int): frame count
+            ctr_inner (int): sample in batch count
+        """
+
+        filtered_data = self.remove_outlier_class_sensitive(x, y) if self.remove_outliers else x
+        current_mean = np.mean(filtered_data, axis=0)
+
+        if (np.linalg.norm(np.abs(current_mean - self.current_mean) / (self.current_mean + 1e-10))) > self.delta:
+            self.update_statistics(x, y)
+            print(f'Change detected at index: {ctr_outer}.{ctr_inner}')
+
+    @staticmethod
+    def force_concept_drift(x, k=1000, i=0):
+        """
+        Scales feature i of x by k to enforce concept drift
+
+        Args:
+            x (np.ndarray): the feature vector
+            k (int): scaling weight
+            i (int): feature index
+
+        Returns:
+            np.ndarray: the drifted feature vector
+        """
+        x[:, i] = x[:, i] * k
+        return x
+
     def draw_top_features_plot(self, top_features, title, path_name, feature_names):
         """
         Draws the most selected features over time.
@@ -282,57 +304,6 @@ class ONLINE:
         plt.title(title, size=20)
         plt.savefig(self.dir_path + path_name, bbox_inches='tight')
         plt.close()
-
-    def detect_concept_drift_x(self, x, y, ctr_outer, ctr_inner):
-        """
-        Detects concept drift in feature values and updates statistics if necessary.
-
-        Args:
-            x (np.ndarray): the feature vector
-            y (np.ndarray): the target vector
-            ctr_outer (int): frame count
-            ctr_inner (int): sample in batch count
-        """
-
-        filtered_data = self.remove_outlier_class_sensitive(x, y) if self.remove_outliers else x
-        current_mean = np.mean(filtered_data, axis=0)
-        # print(np.linalg.norm(np.abs(current_mean - self.current_mean) / (self.current_mean + 1e-10)))
-
-        if (np.linalg.norm(np.abs(current_mean - self.current_mean) / (self.current_mean + 1e-10))) > self.delta:
-            self.update_statistics(x, y)
-            print(f'Change detected at index: {ctr_outer}.{ctr_inner}')
-
-    @staticmethod
-    def force_concept_drift(x, k=1000, i=0):
-        """
-        Scales feature i of x by k to enforce concept drift
-
-        Args:
-            x (np.ndarray): the feature vector
-            k (int): scaling weight
-            i (int): feature index
-
-        Returns:
-            np.ndarray: the drifted feature vector
-        """
-        x[:, i] = x[:, i] * k
-        return x
-
-    # def detect_concept_drift_class_sensitive(self, x, y, ctr_outer, ctr_inner):
-    #     x_0 = x[y == 0]
-    #     x_1 = x[y == 1]
-    #     mean_0 = np.mean(x_0, axis=0)
-    #     mean_1 = np.mean(x_1, axis=0)
-    #
-    #     update = False
-    #     if (np.linalg.norm(np.abs(mean_1 - self.mean_1) / (self.mean_1 + 1e-10))) > self.delta:
-    #         update = True
-    #     if (np.linalg.norm(np.abs(mean_0 - self.mean_0) / (self.mean_0 + 1e-10))) > self.delta:
-    #         update = True
-    #
-    #     if update:
-    #         self.update_statistics(x, y)
-    #         print(f'Change detected at index: {ctr_outer}.{ctr_inner}')
 
     def draw_accuracy(self):
         plt.ioff()
