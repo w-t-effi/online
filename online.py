@@ -10,7 +10,7 @@ from skmultiflow.data.file_stream import FileStream
 from skmultiflow.drift_detection.base_drift_detector import BaseDriftDetector
 from sklearn.metrics import accuracy_score
 from fires import FIRES
-from utils import get_spambase_feature_names
+from utils import get_kdd_conceptdrift_feature_names
 
 
 class ONLINE:
@@ -48,7 +48,7 @@ class ONLINE:
         self.accuracy_scores = []
 
         self.feature_names = np.array(
-            get_spambase_feature_names()) if self.stream.filename == 'kdd_conceptdrift' else np.array(
+            get_kdd_conceptdrift_feature_names()) if self.stream.filename == 'kdd_conceptdrift' else np.array(
             self.stream.feature_names)
 
 
