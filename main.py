@@ -10,11 +10,9 @@ import warnings
 
 warnings.filterwarnings("ignore")
 
-file_name = 'data/mixed_0101_abrupto.csv'
-#file_name= 'C:\\Users\\Valeria\\Desktop\\Master\\Semester 4\\Explainability in Analytics\\repo\\data\\kdd_conceptdrift.csv'
+file_name = 'data/mixed_0101_gradual.csv'
 
-
-concept_drift_stream = FileStream(file_name)#, target_idx=0, n_targets=1)
+concept_drift_stream = FileStream(file_name)  # , target_idx=0, n_targets=1)
 
 fires_model = FIRES(n_total_ftr=concept_drift_stream.n_features,  # Total no. of features
                     target_values=concept_drift_stream.target_values,  # Unique target values (class labels)
@@ -28,8 +26,8 @@ fires_model = FIRES(n_total_ftr=concept_drift_stream.n_features,  # Total no. of
                     scale_weights=True,  # If True, scale feature weights into the range [0,1]
                     model='probit')  # Name of the base model to compute the likelihood
 
-adwin = ADWIN()
+ddm = DDM()
 perceptron = Perceptron(random_state=42)
 
-online = ONLINE(concept_drift_stream, adwin, perceptron, fires_model=None, do_normalize=False, remove_outliers=True,y_drift_detection=False)
+online = ONLINE(concept_drift_stream, ddm, perceptron, fires_model=fires_model, do_normalize=True, delta=0.24, y_drift_detection=True, gamma=0)
 online.run()
